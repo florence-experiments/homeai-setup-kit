@@ -1,0 +1,237 @@
+{
+  "_readme": "Security Watcher settings, written by HomeAI setup. Edit with Notepad, then restart the watcher (Stop-Watcher.cmd, Start-Watcher.cmd). Backslashes must be doubled. 100.64.0.0/10 and fd7a:115c:a1e0::/48 are the standard address ranges used by mesh VPNs such as Tailscale.",
+  "poll_seconds": 2,
+  "ai_ports": {
+    "8090": "HomeAI",
+    "8092": "Voice sidecar",
+    "8081": "llama router",
+    "8888": "SearXNG (Docker)",
+    "3000": "OpenHands (Docker)",
+    "8188": "ComfyUI",
+    "7860": "Gradio apps"
+  },
+  "dashboard": {
+    "host": "127.0.0.1",
+    "port": 8095
+  },
+  "paths": {
+    "log_dir": "{{SEC}}\\logs",
+    "state_dir": "{{SEC}}\\state",
+    "geo_dir": "{{SEC}}\\geo",
+    "pfirewall_log": "%SystemRoot%\\System32\\LogFiles\\Firewall\\pfirewall.log"
+  },
+  "sources": {
+    "sysmon": true,
+    "sysmon_channel": "Microsoft-Windows-Sysmon/Operational",
+    "sysmon_event_ids": [
+      1,
+      3,
+      7,
+      8,
+      10,
+      22
+    ],
+    "security_log": true,
+    "security_event_ids": [
+      5152,
+      5157
+    ],
+    "pfirewall": true,
+    "inbound_from_security_log": "auto",
+    "max_events_per_poll": 500,
+    "max_backlog_before_skip": 5000
+  },
+  "trusted_networks": [
+    "127.0.0.0/8",
+    "::1/128",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "fe80::/10",
+    "fc00::/7",
+    "100.64.0.0/10",
+    "fd7a:115c:a1e0::/48",
+    "224.0.0.0/4",
+    "ff00::/8",
+    "255.255.255.255/32",
+    "0.0.0.0/32",
+    "::/128"
+  ],
+  "ai_processes": {
+    "_note": "An app counts as an AI app if its file name OR its full path matches. python.exe matches EVERY Python, including pip.",
+    "image_names": [
+      "python.exe",
+      "pythonw.exe",
+      "llama-server.exe",
+      "ComfyUI.exe"
+    ],
+    "path_contains": [
+      "{{HOMEAI_ROOT}}\\",
+      "\\ComfyUI"
+    ]
+  },
+  "actions": {
+    "kill_ai_on_unapproved_outbound": true,
+    "kill_on_blocked_attempt": true,
+    "kill_on_inbound_accept": false,
+    "kill_process_tree": true,
+    "max_event_age_seconds": 30,
+    "pause_minutes_default": 30
+  },
+  "never_kill": {
+    "_note": "Never closed by the watcher, whatever the rules say. Add your own apps here (file name or part of the path).",
+    "image_names": [
+      "System",
+      "Registry",
+      "smss.exe",
+      "csrss.exe",
+      "wininit.exe",
+      "winlogon.exe",
+      "services.exe",
+      "lsass.exe",
+      "svchost.exe",
+      "dwm.exe",
+      "explorer.exe",
+      "fontdrvhost.exe",
+      "sihost.exe",
+      "ctfmon.exe",
+      "MsMpEng.exe",
+      "NisSrv.exe",
+      "MpDefenderCoreService.exe",
+      "SecurityHealthService.exe",
+      "SecurityHealthSystray.exe",
+      "smartscreen.exe",
+      "Sysmon.exe",
+      "Sysmon64.exe",
+      "taskmgr.exe",
+      "conhost.exe"
+    ],
+    "path_contains": [
+      "C:\\Windows\\",
+      "\\Windows Defender\\",
+      "\\Microsoft\\Windows Defender"
+    ]
+  },
+  "allowed_apps": [],
+  "screenshot": {
+    "enabled": true,
+    "_note": "Best effort only. Windows has no reliable 'a screenshot was taken' event.",
+    "suspicious_tools": [
+      "nircmd.exe",
+      "nircmdc.exe",
+      "psr.exe",
+      "ShareX.exe",
+      "Greenshot.exe",
+      "Lightshot.exe",
+      "Screenshoter.exe",
+      "screencapture.exe",
+      "boxcutter.exe",
+      "ffmpeg.exe"
+    ],
+    "user_tools_allowlist": [
+      "SnippingTool.exe",
+      "ScreenClippingHost.exe",
+      "ScreenSketch.exe",
+      "obs64.exe"
+    ],
+    "cmdline_patterns": [
+      "CopyFromScreen",
+      "ImageGrab\\.grab",
+      "pyautogui\\.screenshot",
+      "\\bmss\\b",
+      "savescreenshot",
+      "gdigrab",
+      "PrintWindow",
+      "Graphics\\.Capture"
+    ],
+    "image_load_dlls": [
+      "GraphicsCapture.dll"
+    ],
+    "capture_apps_allowlist": [
+      "obs64.exe",
+      "Discord.exe",
+      "Teams.exe",
+      "ms-teams.exe",
+      "chrome.exe",
+      "msedge.exe",
+      "firefox.exe",
+      "Zoom.exe",
+      "SnippingTool.exe",
+      "ScreenClippingHost.exe",
+      "GameBar.exe",
+      "GameBarFTServer.exe",
+      "steamwebhelper.exe",
+      "explorer.exe",
+      "dwm.exe"
+    ]
+  },
+  "port_scan": {
+    "distinct_ports": 10,
+    "window_seconds": 60,
+    "cooldown_seconds": 600,
+    "ignore_ips": []
+  },
+  "never_block_ips": [
+    "100.64.0.0/10",
+    "fd7a:115c:a1e0::/48",
+    "127.0.0.0/8"
+  ],
+  "integrity": {
+    "enabled": true,
+    "check_seconds": 10,
+    "baseline_csv": "{{SEC}}\\state\\baseline-hashes.csv",
+    "files": [
+      {
+        "path": "{{HOMEAI_ROOT}}\\homeai\\data\\presets.json",
+        "good": "{{SEC}}\\state\\presets.good.json"
+      },
+      {
+        "path": "{{HOMEAI_ROOT}}\\homeai\\data\\settings.json",
+        "good": "{{SEC}}\\state\\settings.good.json"
+      }
+    ]
+  },
+  "enrichment": {
+    "offline_geo": true,
+    "reverse_dns": true,
+    "traceroute": true,
+    "traceroute_private": false,
+    "traceroute_args": [
+      "-d",
+      "-h",
+      "15",
+      "-w",
+      "500"
+    ],
+    "online_geo": false,
+    "online_geo_url": "http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp,org,as",
+    "online_lookup_allowlist": [
+      "ip-api.com"
+    ]
+  },
+  "alerts": {
+    "popup": true,
+    "popup_min_severity": "high",
+    "cooldown_seconds": 300,
+    "max_open_popups": 4,
+    "sound": true
+  },
+  "logging": {
+    "max_mb": 20,
+    "keep_files": 3,
+    "log_inbound_summary_seconds": 60
+  },
+  "ai_shell_allowlist": [
+    {
+      "why": "HomeAI secure delete: TRIM the drive after deleting a chat",
+      "parent": "{{PYTHON}}",
+      "command_line": "powershell.exe -NoProfile -NonInteractive -Command \"Optimize-Volume -DriveLetter {{DRIVE}} -ReTrim -ErrorAction Stop\""
+    },
+    {
+      "why": "HomeAI secure delete fallback: run the HomeAI-ReTrim scheduled task",
+      "parent": "{{PYTHON}}",
+      "command_line": "schtasks.exe /Run /TN HomeAI-ReTrim"
+    }
+  ]
+}

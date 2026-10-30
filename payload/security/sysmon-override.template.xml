@@ -1,0 +1,33 @@
+<!-- HomeAI additions to the sysmon-modular config.
+     merge_sysmon_config.py copies every RuleGroup below into the <EventFiltering> section of
+     sysmonconfig.xml and writes sysmonconfig-merged.xml, which Install-Sysmon.cmd installs.
+     Include rules in separate RuleGroups are OR'ed with the base config, so these only ADD logging.
+     (An exclude rule in the base config can still win; the watcher also reads the firewall's
+     Security-log events 5152/5157, which cover blocked connections either way.) -->
+<SysmonOverride>
+  <!-- Event 3: log every network connection made by the AI programs -->
+  <RuleGroup name="HomeAI AI network" groupRelation="or">
+    <NetworkConnect onmatch="include">
+      <Image name="technique_id=T1071,technique_name=AI app network" condition="end with">\python.exe</Image>
+      <Image condition="end with">\pythonw.exe</Image>
+      <Image condition="end with">\llama-server.exe</Image>
+      <Image condition="contains">\ComfyUI</Image>
+      <Image condition="begin with">{{HOMEAI_ROOT}}\</Image>
+    </NetworkConnect>
+  </RuleGroup>
+  <!-- Event 22: DNS lookups by the AI programs (gives names for the IPs in alerts) -->
+  <RuleGroup name="HomeAI AI DNS" groupRelation="or">
+    <DnsQuery onmatch="include">
+      <Image condition="end with">\python.exe</Image>
+      <Image condition="end with">\pythonw.exe</Image>
+      <Image condition="end with">\llama-server.exe</Image>
+    </DnsQuery>
+  </RuleGroup>
+  <!-- Event 7: best-effort screenshot hint - a program loading the Windows screen-capture library -->
+  <RuleGroup name="HomeAI screen capture hint" groupRelation="or">
+    <ImageLoad onmatch="include">
+      <ImageLoaded condition="end with">\Windows.Graphics.Capture.dll</ImageLoaded>
+      <ImageLoaded condition="end with">\GraphicsCapture.dll</ImageLoaded>
+    </ImageLoad>
+  </RuleGroup>
+</SysmonOverride>

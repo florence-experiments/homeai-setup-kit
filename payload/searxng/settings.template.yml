@@ -1,0 +1,15 @@
+# SearXNG settings for HomeAI (private, local-only search). Setup fills in a fresh random secret_key.
+use_default_settings: true
+general:
+  instance_name: "HomeAI Search"
+  enable_metrics: false
+search:
+  default_lang: "en"
+  formats:
+    - html
+    - json
+server:
+  secret_key: "{{SECRET}}"
+  limiter: false
+  public_instance: false
+  image_proxy: false

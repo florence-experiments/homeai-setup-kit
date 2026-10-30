@@ -1,0 +1,22 @@
+name: home-ai-search
+services:
+  search:
+    image: docker.io/searxng/searxng:latest   # change the tag to pin a version
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:8888/"
+      SEARXNG_PORT: "8080"
+    volumes:
+      - ./config:/etc/searxng
+      - search-cache:/var/cache/searxng
+    mem_limit: 1g
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+volumes:
+  search-cache:

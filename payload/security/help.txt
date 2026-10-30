@@ -1,0 +1,42 @@
+SECURITY MONITOR - HELP  (optional HomeAI extra, Windows only)
+=============================================================
+
+WHAT IT DOES
+- Runs quietly in the background after you log on.
+- If an AI program (HomeAI, the AI engine, Python, ComfyUI) connects to the
+  internet without your approval, it is closed and a red pop-up explains
+  what happened: the program, the address, its country and owner (from an
+  offline file - nothing is looked up online), and a traced route.
+- Also warns about port scans, screen-capture attempts, and changes to
+  HomeAI's presets/settings files.
+- Pop-up buttons: Dismiss, Allow this app, Restore file, Open Monitor.
+
+FIRST-TIME INSTALL (one admin run)
+- In this folder, right-click Install-All.cmd > Run as administrator.
+  It downloads Microsoft Sysmon (signature checked), the sysmon-modular
+  config (SHA-256 checked) and the free DB-IP Lite country files, then sets
+  the watcher to start when you log on.
+- Then double-click Test-Watcher.cmd: you should see 3 PASS lines.
+
+MONITOR PAGE
+- http://127.0.0.1:8095/ (only this PC can open it).
+- "Pause closing apps 30 min" is for when HomeAI must go online on purpose
+  (setup, Add mode downloads, the Model Updater, web search).
+
+SCRIPTS IN THIS FOLDER
+- Start-Watcher.cmd / Stop-Watcher.cmd .. start or stop it
+- Test-Watcher.cmd ....................... safe self-test
+- Update-Baseline.cmd .................... run after YOU change HomeAI
+                                           presets or add a mode, so it
+                                           doesn't warn about your change
+- Export-FirewallLog.cmd (admin) ......... copies firewall logs to logs\
+- Uninstall-Watcher-Task.cmd (admin) ..... removes the logon task
+- Uninstall-Sysmon.cmd (admin) ........... removes Sysmon
+
+SETTINGS
+- config.json in this folder (open with Notepad). "never_kill" and
+  "allowed_apps" are where you add your own trusted programs.
+
+Everything stays on this PC. No telemetry.
+
+Built by Florence for the community.

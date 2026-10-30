@@ -1,0 +1,9 @@
+{
+  "_readme": "Copy to config.json to change settings. Setup writes config.json for you.",
+  "host": "127.0.0.1",
+  "port": 8090,
+  "llama_url": "http://127.0.0.1:8081",
+  "data_dir": "data",
+  "searxng_url": "http://127.0.0.1:8888",
+  "voice_autostart": true
+}

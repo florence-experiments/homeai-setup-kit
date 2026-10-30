@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeAI</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="styles.css">
+<script>try{var t=JSON.parse(localStorage.getItem('homeai.theme')||'"dark"');document.documentElement.dataset.theme=t;}catch(e){}</script>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div id="app" class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-head">
+      <div class="brand"><span class="brand-orb"></span><span class="brand-name">Home<b>AI</b></span></div>
+      <button class="icon-btn" id="btnCollapse" title="Hide sidebar"></button>
+    </div>
+    <button class="new-chat" id="btnNew" title="New chat (Ctrl+Shift+O)"><span class="ico" data-icon="plus"></span><span>New chat</span></button>
+    <div class="search">
+      <span class="ico" data-icon="search"></span>
+      <input id="search" type="text" placeholder="Search chats" autocomplete="off" spellcheck="false">
+      <kbd>Ctrl K</kbd>
+    </div>
+    <nav class="chat-list" id="chatList"></nav>
+    <div class="sb-foot">
+      <div class="server-pill" id="serverPill" title="llama-server connection"><span class="dot"></span><span class="txt">Connecting…</span></div>
+      <button class="icon-btn" id="btnTheme" title="Toggle light / dark"></button>
+      <button class="icon-btn" id="btnAppSettings" title="Settings"></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn only-collapsed" id="btnExpand" title="Show sidebar"></button>
+      <div class="model-picker" id="modelPicker">
+        <button class="mp-btn" id="mpBtn"><span class="status-dot" id="mpDot"></span><span class="mp-name" id="mpName">Select a model</span><span class="mp-sub" id="mpSub"></span><span class="ico chev" data-icon="chevron"></span></button>
+        <div class="mp-menu pop" id="mpMenu" hidden></div>
+      </div>
+      <div class="preset-chips" id="presetChips"></div>
+      <div class="spacer"></div>
+      <div class="load-pill" id="loadPill" hidden><span class="spinner"></span><span class="txt">Loading model…</span><span class="bar"><i></i></span></div>
+      <button class="icon-btn" id="btnExport" title="Export chat as Markdown"></button>
+      <button class="icon-btn" id="btnChatSettings" title="Chat settings & presets"></button>
+    </header>
+
+    <section class="scroller" id="scroller">
+      <div class="thread" id="thread"></div>
+    </section>
+
+    <footer class="composer-wrap">
+      <button class="jump" id="btnJump" hidden title="Jump to latest"></button>
+      <div class="composer" id="composer">
+        <div class="attachments" id="attachments"></div>
+        <textarea id="input" rows="1" placeholder="Message HomeAI…" spellcheck="true"></textarea>
+        <div class="composer-bar">
+          <button class="icon-btn" id="btnAttach" title="Attach images or text files"></button>
+          <input type="file" id="fileInput" multiple hidden>
+          <button class="icon-btn oh-btn" id="btnOH" title="Send to OpenHands (optional coding agent; works in its own workspace folder)"></button>
+          <button class="icon-btn scene-btn" id="btnScene" title="Scene to prompt: turn the text in the message box (or a pasted scene) into an image prompt"></button>
+          <div class="web-wrap">
+            <button class="icon-btn web-btn" id="btnWeb" title="Web search (SearXNG)"></button>
+            <button class="icon-btn voice-cfg web-cfg" id="btnWebCfg" title="Web search settings"></button>
+            <div class="web-menu pop" id="webMenu" hidden></div>
+          </div>
+          <button class="mq-chip" id="mqChip" data-act="toggle-mq" hidden><span class="ico" data-icon="zap"></span>Max quality</button>
+          <div class="think-toggle" id="thinkToggle" title="Reasoning (thinking) mode for models that support it"></div>
+          <div class="spacer"></div>
+          <span class="hint" id="sendHint"></span>
+          <div class="voice-wrap">
+            <button class="icon-btn voice-btn" id="btnSpeak" title="Read replies aloud"></button>
+            <button class="icon-btn voice-cfg" id="btnVoiceCfg" title="Voice settings"></button>
+            <div class="voice-menu pop" id="voiceMenu" hidden></div>
+          </div>
+          <span class="mic-time" id="micTime" hidden></span>
+          <button class="icon-btn mic-btn" id="btnMic" title="Speak instead of typing (local speech-to-text)"></button>
+          <button class="send-btn" id="btnSend" title="Send"></button>
+        </div>
+      </div>
+      <div class="statsbar" id="statsbar"></div>
+      <div class="credit">Built by Florence for the community.</div>
+    </footer>
+    <div class="drop-overlay" id="dropOverlay"><div><span class="ico big" data-icon="upload"></span><p>Drop images or text files</p><small>Images go to vision models · files are inserted as context</small></div></div>
+  </main>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div class="tabs" id="drawerTabs">
+        <button data-tab="chat" class="active">Chat</button>
+        <button data-tab="presets">Presets</button>
+        <button data-tab="routing">Routing</button>
+        <button data-tab="app">App</button>
+      </div>
+      <button class="icon-btn" id="btnCloseDrawer" title="Close"></button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+<div class="toasts" id="toasts"></div>
+<div class="modal-root" id="modalRoot"></div>
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="vendor/hljs-extra.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="installed.js"></script>
+<script src="router.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

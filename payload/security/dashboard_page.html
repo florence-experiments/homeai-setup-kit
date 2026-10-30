@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Security Monitor</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0d1117;--card:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--blue:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);background:#010409;position:sticky;top:0;z-index:2}
+header h1{font-size:20px;margin:0}.pill{padding:4px 12px;border-radius:999px;font-weight:600;font-size:13px}
+.pill.ok{background:#1a3d24;color:var(--ok)}.pill.warn{background:#3d2e0a;color:var(--warn)}.pill.bad{background:#4a1214;color:var(--bad)}
+.sp{flex:1}.mut{color:var(--mut)}main{padding:18px 22px;display:grid;gap:16px;grid-template-columns:repeat(12,1fr)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.card h2{font-size:15px;margin:0 0 10px;display:flex;gap:8px;align-items:center}
+.w12{grid-column:span 12}.w8{grid-column:span 8}.w6{grid-column:span 6}.w4{grid-column:span 4}
+@media(max-width:1100px){.w8,.w6,.w4{grid-column:span 12}}
+.health{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.h{border:1px solid var(--line);border-radius:8px;padding:10px}.h b{display:block;font-size:13px}.h span{font-size:12px;color:var(--mut)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}.dot.off{background:#484f58}
+table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:var(--mut);font-weight:600;border-bottom:1px solid var(--line);padding:6px}
+td{padding:6px;border-bottom:1px solid #21262d;vertical-align:top;word-break:break-word}
+.tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;margin:1px 3px 1px 0;background:#21262d}
+.tag.bad{background:#4a1214;color:#ffb3ad}.tag.ok{background:#1a3d24;color:#9be9a8}.tag.warn{background:#3d2e0a;color:#f2cc60}
+.alert{border-left:4px solid var(--warn);background:#1c2128;border-radius:6px;padding:8px 10px;margin-bottom:8px}
+.alert.high{border-color:var(--bad)}.alert.info,.alert.low{border-color:var(--blue)}.alert.dismissed{opacity:.5}
+.alert .t{font-weight:600}.alert .m{font-size:12px;color:var(--mut)}
+button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+button:hover{border-color:var(--blue)}button.pri{background:#1f6feb;border-color:#1f6feb}
+.scroll{max-height:420px;overflow:auto}.empty{color:var(--mut);font-style:italic;padding:8px 0}
+.mono{font-family:Consolas,monospace;font-size:12px}
+</style></head><body>
+<header>
+  <span style="font-size:26px">&#128737;&#65039;</span><h1>Security Monitor</h1>
+  <span id="status" class="pill warn">connecting&hellip;</span>
+  <span class="sp"></span>
+  <span id="killstate" class="pill ok"></span>
+  <button id="pausebtn" onclick="act('pause')">&#9208;&#65039; Pause closing apps 30 min</button>
+  <button id="resumebtn" onclick="act('resume')" style="display:none">&#9654;&#65039; Resume</button>
+  <span id="clock" class="mut mono"></span>
+</header>
+<main>
+  <section class="card w12"><h2>&#129658; Health</h2><div id="health" class="health"></div></section>
+  <section class="card w8"><h2>&#128680; Recent alerts</h2><div id="alerts" class="scroll"></div></section>
+  <section class="card w4"><h2>&#128274; File integrity</h2><div id="files"></div>
+    <h2 style="margin-top:16px">&#128682; AI ports exposure</h2><div id="exposure"></div></section>
+  <section class="card w6"><h2>&#127760; Live traffic (per program)</h2><div id="traffic" class="scroll"></div></section>
+  <section class="card w6"><h2>&#129521; Blocked inbound by source IP</h2><div id="inbound" class="scroll"></div>
+    <h2 style="margin-top:16px">&#9940; Blocked outbound by program</h2><div id="outbound"></div></section>
+</main>
+<script>
+const TOKEN="__TOKEN__";
+const $=id=>document.getElementById(id);
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function t(ts){if(!ts)return"";const d=new Date(ts*1000);return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+function dt(ts){if(!ts)return"";const d=new Date(ts*1000);return d.toLocaleDateString([], {day:"2-digit",month:"short"})+" "+t(ts)}
+function geo(g){if(!g)return"";return [g.city,g.country].filter(Boolean).join(", ")+(g.network?" \u00b7 "+g.network:"")}
+async function act(action,extra){
+  const r=await fetch("/api/action",{method:"POST",headers:{"Content-Type":"application/json","X-Token":TOKEN},body:JSON.stringify(Object.assign({action},extra||{}))});
+  const j=await r.json().catch(()=>({message:"error"}));
+  if(j.message&&action!=="dismiss")alert(j.message);
+  load();
+}
+function confirmAct(action,extra,q){if(confirm(q))act(action,extra)}
+function health(h){
+  const items=[
+    ["&#128065;&#65039; Watcher",h.watcher.ok?"ok":"bad","up "+h.watcher.uptime+" \u00b7 CPU "+h.watcher.cpu_pct+"% \u00b7 "+(h.watcher.mem_mb||"?")+" MB"],
+    ["&#128225; Sysmon",h.sysmon.state,h.sysmon.msg],
+    ["&#128737;&#65039; Security log",h.security.state,h.security.msg],
+    ["&#129521; Firewall log",h.pfirewall.state,h.pfirewall.msg],
+    ["&#128506;&#65039; Geo database",h.geo.state,h.geo.msg],
+    ["&#128274; File check",h.integrity.state,h.integrity.msg],
+    ["&#128737;&#65039; Admin rights",h.admin?"ok":"warn",h.admin?"running elevated":"not elevated: Security log and firewall log can't be read"],
+  ];
+  $("health").innerHTML=items.map(i=>`<div class="h"><b><span class="dot ${i[1]}"></span>${i[0]}</b><span>${esc(i[2])}</span></div>`).join("");
+}
+function alerts(list){
+  if(!list.length){$("alerts").innerHTML='<div class="empty">No alerts. A quiet log is normal.</div>';return}
+  $("alerts").innerHTML=list.map(a=>{
+    const e=a.enrichment||{};const g=geo(e.geo);
+    const route=(e.traceroute&&e.traceroute.hops)?e.traceroute.hops.map(h=>h.ip).join(" \u203a "):(e.traceroute&&e.traceroute.status==="running"?"route: running\u2026":"");
+    const btn=[];
+    if(!a.dismissed)btn.push(`<button onclick="act('dismiss',{id:'${esc(a.id)}'})">Dismiss</button>`);
+    if(a.kind==="file_tamper")btn.push(`<button class="pri" onclick="confirmAct('restore',{id:'${esc(a.id)}'},'Restore the saved good copy?')">Restore file</button>`);
+    if(a.kind==="file_tamper")btn.push(`<button onclick="confirmAct('accept',{id:'${esc(a.id)}'},'Accept the current file as the new good version?')">This change was me</button>`);
+    if(a.kind==="port_scan"&&a.can_block)btn.push(`<button onclick="confirmAct('block_ip',{id:'${esc(a.id)}'},'Add a Windows Firewall rule blocking this IP?')">Block this IP</button>`);
+    return `<div class="alert ${esc(a.severity)} ${a.dismissed?"dismissed":""}">
+      <div class="t">${a.test?'<span class="tag warn">TEST</span>':""}${esc(a.title)}</div>
+      <div class="m">${dt(a.time)} \u00b7 ${esc(a.image||"")} ${a.pid?"(pid "+esc(a.pid)+")":""}</div>
+      ${a.remote_ip?`<div class="m mono">${esc(a.remote_ip)}${a.remote_port?":"+esc(a.remote_port):""} ${esc(e.reverse_dns||"")} ${esc(g)}</div>`:""}
+      ${route?`<div class="m mono">${esc(route)}</div>`:""}
+      <div class="m"><span class="tag ${(a.action||"").startsWith("CLOSED")?"bad":""}">${esc(a.action||"")}</span> ${btn.join(" ")}</div></div>`}).join("");
+}
+function files(f){
+  if(!f.files.length){$("files").innerHTML=`<div class="empty">${esc(f.baseline_error||"not checked yet")}</div>`;return}
+  $("files").innerHTML=(f.baseline_error?`<div class="tag warn">${esc(f.baseline_error)}</div>`:"")+"<table>"+f.files.map(x=>{
+    const cls=x.state==="OK"?"ok":(x.state==="CHANGED"||x.state==="MISSING"?"bad":"warn");
+    return `<tr><td>${esc(x.path.split("\\").pop())}<div class="mut mono">${esc((x.actual||"").slice(0,16))}</div></td><td><span class="tag ${cls}">${esc(x.state)}</span></td><td class="mut">${t(x.checked)}</td></tr>`}).join("")+"</table>";
+}
+function exposure(list){
+  if(!list.length){$("exposure").innerHTML='<div class="empty">No AI ports listening right now.</div>';return}
+  $("exposure").innerHTML="<table>"+list.map(x=>`<tr><td>${esc(x.name)} :${esc(x.port)}</td><td class="mono">${esc(x.bind)}</td><td><span class="tag ${x.exposed?"bad":"ok"}">${x.exposed?"OPEN to network":"local only"}</span></td></tr>`).join("")+"</table>";
+}
+function traffic(list,note){
+  if(!list.length){$("traffic").innerHTML=`<div class="empty">${esc(note||"No connections.")}</div>`;return}
+  $("traffic").innerHTML="<table><tr><th>Program</th><th>Conns</th><th>Talking to</th></tr>"+list.map(p=>{
+    const tags=p.remotes.map(r=>`<span class="tag ${r.external&&p.ai?"bad":(r.external?"":"ok")}">${esc(r.ip)}:${esc(r.port)}</span>`).join("");
+    const label=p.allowed?'<span class="tag ok">Allowed by you</span>':(p.ai?'<span class="tag warn">AI app</span>':"");
+    return `<tr><td>${esc(p.name)} <span class="mut">${esc(p.pid)}</span> ${label}</td><td>${p.established}${p.listening?" \u00b7 "+p.listening+" listen":""}</td><td>${tags||'<span class="mut">-</span>'}</td></tr>`}).join("")+"</table>";
+}
+function inbound(list,total){
+  if(!list.length){$("inbound").innerHTML='<div class="empty">Nothing blocked coming in yet.</div>';return}
+  $("inbound").innerHTML=`<div class="mut">Total blocked: ${total}</div><table><tr><th>Source</th><th>Hits</th><th>Ports</th><th>Last</th></tr>`+list.map(r=>`<tr><td class="mono">${esc(r.ip)} ${r.scan?'<span class="tag bad">PORT SCAN</span>':""}<div class="mut">${esc(geo(r.geo))}</div></td><td>${r.count}</td><td class="mono">${esc(r.distinct_ports)}: ${esc(r.top_ports.join(", "))}</td><td class="mut">${t(r.last)}</td></tr>`).join("")+"</table>";
+}
+function outbound(list){
+  if(!list.length){$("outbound").innerHTML='<div class="empty">Nothing blocked going out yet.</div>';return}
+  $("outbound").innerHTML="<table>"+list.map(r=>`<tr><td>${esc(r.app)} ${r.ai?'<span class="tag warn">AI app</span>':""}</td><td>${r.count}</td><td class="mono">${esc(r.last_remote)}</td></tr>`).join("")+"</table>";
+}
+async function load(){
+  try{
+    const r=await fetch("/api/state",{headers:{"X-Token":TOKEN}});const s=await r.json();
+    const st=$("status");st.textContent=s.status.text;st.className="pill "+s.status.tone;
+    const ks=$("killstate");ks.textContent=s.kill.text;ks.className="pill "+(s.kill.paused?"warn":(s.kill.on?"ok":"warn"));
+    $("pausebtn").style.display=s.kill.paused?"none":"";$("resumebtn").style.display=s.kill.paused?"":"none";
+    $("clock").textContent="updated "+t(s.now);
+    health(s.health);alerts(s.alerts);files(s.integrity);exposure(s.exposure);traffic(s.traffic,s.traffic_note);inbound(s.inbound,s.inbound_total);outbound(s.outbound);
+  }catch(e){const st=$("status");st.textContent="watcher not responding";st.className="pill bad"}
+}
+load();setInterval(load,2000);
+</script></body></html>

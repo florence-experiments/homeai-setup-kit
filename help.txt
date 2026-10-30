@@ -1,0 +1,44 @@
+HOMEAI - QUICK HELP
+===================
+
+START / STOP
+- Windows: double-click "HomeAI" on the desktop (or Start HomeAI.cmd).
+           "Stop HomeAI" stops everything.
+- Linux:   HomeAI in your app menu, or ./start-homeai.sh and ./stop-homeai.sh
+- HomeAI opens in your browser at http://127.0.0.1:8090/
+
+MODES
+- You start with General and Coding. Click "+ Add mode" to add Writing,
+  Vision, Reasoning, Research, Long documents and more. HomeAI suggests
+  models that fit your computer; nothing downloads until you type yes.
+
+BETTER MODELS LATER
+- Run the Model Updater (if you installed it). It only changes a mode after
+  you type yes, and you can undo.
+
+FILES (inside your HomeAI folder)
+- homeai\data ........ your chats, presets and settings
+- models ............. downloaded AI models
+- engine\models.ini .. model settings for the AI engine (editable)
+- logs ............... logs from the last start (safe to delete)
+
+IF SOMETHING GOES WRONG
+- Stop HomeAI, then start it again.
+- Look at logs\engine.log and logs\homeai.log.
+- Run setup again: it repairs the install and keeps your chats and models.
+- Web search and OpenHands need Docker to be running.
+
+PRIVACY
+- Everything local; no telemetry.
+- Tokens only if the user provides an HF token (never saved).
+
+SAFETY
+- HomeAI keeps one fixed rule that cannot be removed: no sexual content
+  involving anyone under 18.
+- Uncensored models can be wrong or offensive. See DISCLAIMER.md.
+
+UNINSTALL
+- "Uninstall HomeAI" (Windows Start menu) or ./uninstall.sh (Linux).
+  It asks before deleting each thing.
+
+Built by Florence for the community.
