@@ -5,6 +5,7 @@
 Everything listens on 127.0.0.1 only. Logs go to <HomeAI folder>/logs and are overwritten at each start."""
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -56,34 +57,172 @@ def _spawn(root, name, cmd, cwd):
         kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True
-    p = subprocess.Popen(cmd, **kw)
-    with open(_pidfile(root, name), "w") as f:
-        f.write(str(p.pid))
+    try:
+        p = subprocess.Popen(cmd, **kw)
+    finally:
+        log.close()                                    # the child keeps its own copy of the handle
+    write_pidfile(_pidfile(root, name), p.pid, cmd)
     return p
 
 
-def _kill(root, name):
-    pf = _pidfile(root, name)
+# ---- pid files: {"pid", "start", "cmd", "exe"}. A pid is only signalled when the running process is provably the
+# one HomeAI started (same start time, same command line / program), so a stale or reused pid never kills anything.
+def _proc_start(pid):
+    """Process start time as an opaque token (Linux: clock ticks since boot; Windows: creation FILETIME), or None."""
+    if IS_WIN:
+        return (_win_proc(pid) or {}).get("start")
     try:
-        with open(pf) as f:
-            pid = int(f.read().strip())
-    except (OSError, ValueError):
-        return False
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            stat = f.read().decode("utf-8", "replace")
+        return int(stat[stat.rindex(")") + 2:].split()[19])      # field 22, counted after the "(comm)" field
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _proc_cmdline(pid):
+    """Linux: argv of a running process as a list, or None."""
     try:
-        if IS_WIN:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
-        else:
-            try:
-                os.killpg(pid, signal.SIGTERM)
-            except OSError:
-                os.kill(pid, signal.SIGTERM)
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            raw = f.read()
     except OSError:
-        pass
+        return None
+    return [a.decode("utf-8", "surrogateescape") for a in raw.split(b"\0")[:-1]] if raw else None
+
+
+def _win_proc(pid):
+    """Windows: {'start': creation time, 'exe': full program path} of a running process, or None (stdlib ctypes)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        h = k32.OpenProcess(0x1000, False, int(pid))            # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return None
+        try:
+            code = wintypes.DWORD()
+            if not k32.GetExitCodeProcess(h, ctypes.byref(code)) or code.value != 259:     # 259 = STILL_ACTIVE
+                return None
+            ft = [wintypes.FILETIME() for _ in range(4)]
+            if not k32.GetProcessTimes(h, *[ctypes.byref(x) for x in ft]):
+                return None
+            start = (ft[0].dwHighDateTime << 32) | ft[0].dwLowDateTime
+            buf = ctypes.create_unicode_buffer(32768)
+            n = wintypes.DWORD(len(buf))
+            exe = buf.value if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)) else None
+            return {"start": start, "exe": exe}
+        finally:
+            k32.CloseHandle(h)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _same_path(a, b):
+    try:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    except (TypeError, ValueError):
+        return False
+
+
+def write_pidfile(pf, pid, cmd):
+    rec = {"pid": int(pid), "start": _proc_start(pid), "cmd": [str(c) for c in cmd],
+           "exe": os.path.abspath(str(cmd[0]))}
+    os.makedirs(os.path.dirname(pf), exist_ok=True)
+    tmp = pf + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f)
+    os.replace(tmp, pf)
+
+
+def read_pidfile(pf):
+    """-> record dict or None. Old kits wrote a bare number: that gives {'pid': n} with nothing to check against."""
+    try:
+        with open(pf, encoding="utf-8") as f:
+            raw = f.read().strip()
+    except OSError:
+        return None
+    try:
+        rec = json.loads(raw)
+    except ValueError:
+        rec = None
+    if isinstance(rec, int):
+        rec = {"pid": rec}
+    if not isinstance(rec, dict):
+        return None
+    try:
+        rec["pid"] = int(rec.get("pid"))
+    except (TypeError, ValueError):
+        return None
+    return rec if rec["pid"] > 0 else None
+
+
+def owned_pid(pf, expect_cmd=None):
+    """The pid in pid file `pf` if that process is still the one HomeAI started, else None.
+    expect_cmd: the command HomeAI would have started (used for old pid files that only hold a number)."""
+    rec = read_pidfile(pf)
+    if not rec:
+        return None
+    pid = rec["pid"]
+    if pid == os.getpid():
+        return None
+    want = rec.get("cmd") or ([str(c) for c in expect_cmd] if expect_cmd else None)
+    if not want:
+        return None
+    if rec.get("start") is not None and _proc_start(pid) != rec["start"]:
+        return None                                    # pid gone or reused by a newer process
+    if IS_WIN:
+        info = _win_proc(pid)
+        if not info or not info.get("exe") or not _same_path(info["exe"], rec.get("exe") or want[0]):
+            return None
+        return pid
+    argv = _proc_cmdline(pid)
+    if not argv:
+        return None                                    # not running (or no /proc to check): never guess
+    if argv == want or (len(argv) == len(want) and argv[1:] == want[1:] and _same_path(argv[0], want[0])):
+        return pid
+    return None
+
+
+def kill_pidfile(pf, expect_cmd=None, log=None):
+    """Stop the process recorded in pid file `pf` only if it is still ours; always removes the pid file.
+    Returns True when a process was signalled."""
+    if not os.path.exists(pf):
+        return False
+    pid = owned_pid(pf, expect_cmd)
+    killed = False
+    if pid is None:
+        if log:
+            log("%s: no matching HomeAI process is running (old pid file removed, nothing stopped)" % os.path.basename(pf))
+    else:
+        try:
+            if IS_WIN:
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+            else:
+                try:
+                    own_group = os.getpgid(pid) == pid and pid != os.getpgrp()
+                except OSError:
+                    own_group = False
+                if own_group:                          # started with start_new_session: the group is ours
+                    os.killpg(pid, signal.SIGTERM)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+            killed = True
+        except OSError:
+            pass
     try:
         os.remove(pf)
     except OSError:
         pass
-    return True
+    return killed
+
+
+def _kill(root, name, expect_cmd=None):
+    return kill_pidfile(_pidfile(root, name), expect_cmd, say)
+
+
+def app_cmd(root):
+    app = os.path.join(root, "homeai")
+    return [_python(root), os.path.join(app, "server.py")]
 
 
 def engine_cmd(root):
@@ -115,7 +254,7 @@ def start_app(root=ROOT, wait=30):
         return True
     say("Starting HomeAI...")
     app = os.path.join(root, "homeai")
-    _spawn(root, "homeai", [_python(root), os.path.join(app, "server.py")], app)
+    _spawn(root, "homeai", app_cmd(root), app)
     end = time.time() + wait
     while time.time() < end:
         if ok("http://127.0.0.1:%d/" % APP_PORT):
@@ -150,8 +289,8 @@ def start(root=ROOT, browser=True):
 
 
 def stop(root=ROOT):
-    _kill(root, "homeai")
-    _kill(root, "engine")
+    _kill(root, "homeai", app_cmd(root))
+    _kill(root, "engine", engine_cmd(root))
     if (_state(root).get("components") or {}).get("searxng"):
         _compose(root, "stop")
     oh = os.path.join(root, "extras", "openhands", "openhands_ctl.py")

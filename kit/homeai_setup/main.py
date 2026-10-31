@@ -200,8 +200,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     answers = None
     if a.answers:
-        with open(a.answers, encoding="utf-8") as f:
-            answers = json.load(f)
+        try:
+            with open(a.answers, encoding="utf-8-sig") as f:
+                answers = json.load(f)
+        except (OSError, ValueError) as ex:
+            say("Could not read the answers file %s: %s" % (a.answers, ex))
+            return 2
+        if not isinstance(answers, dict):
+            say("The answers file %s must hold a JSON object ({...})" % a.answers)
+            return 2
     ask = Asker(answers)
     banner()
     say("")

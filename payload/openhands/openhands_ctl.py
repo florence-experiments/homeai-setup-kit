@@ -76,34 +76,30 @@ def bridge_ip():
     return ip or "172.17.0.1"
 
 
+def _bridge_cmd():
+    return [sys.executable, os.path.join(HERE, "bridge.py"), bridge_ip(), "8081"]
+
+
 def start_bridge():
     """Linux: forward <docker gateway>:8081 -> 127.0.0.1:8081 so the container can reach the engine."""
     if IS_WIN:
         return
-    try:
-        with open(PIDFILE) as f:
-            os.kill(int(f.read().strip()), 0)
-            return
-    except (OSError, ValueError):
-        pass
+    from homeai_setup import control
+    cmd = _bridge_cmd()
+    if control.owned_pid(PIDFILE, cmd):
+        return                                    # our bridge is still running
     os.makedirs(os.path.dirname(PIDFILE), exist_ok=True)
-    p = subprocess.Popen([sys.executable, os.path.join(HERE, "bridge.py"), bridge_ip(), "8081"], start_new_session=True,
+    p = subprocess.Popen(cmd, start_new_session=True,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with open(PIDFILE, "w") as f:
-        f.write(str(p.pid))
+    control.write_pidfile(PIDFILE, p.pid, cmd)
 
 
 def stop_bridge():
-    try:
-        with open(PIDFILE) as f:
-            pid = int(f.read().strip())
-        os.kill(pid, 15)
-    except (OSError, ValueError):
-        pass
-    try:
-        os.remove(PIDFILE)
-    except OSError:
-        pass
+    """Stops the bridge only if the pid file still points at it (a stale or reused pid is left alone)."""
+    if not os.path.exists(PIDFILE):
+        return
+    from homeai_setup import control
+    control.kill_pidfile(PIDFILE, _bridge_cmd())
 
 
 def container_state():

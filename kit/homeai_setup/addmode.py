@@ -54,15 +54,18 @@ def apply(root, mode_key, pick, token=None, log=say):
         if sec not in st["models"]:
             raise ValueError("unknown model section %s" % sec)
     else:
+        C.check_choice(pick, mode_key)            # clear message instead of a KeyError / IndexError later
         hf = S.hf_client(C.paths(root)["cache"], token)
         S.fill_sizes(hf, pick)
         dest = C.model_dir(root, pick["repo"])
         items = list(pick["files"]) + ([pick["mmproj"]] if pick.get("mmproj") and MODES[mode_key].get("vision") else [])
         for f in items:
-            log("Downloading %s (%.2f GiB)..." % (f["path"].rsplit("/", 1)[-1], gib(f.get("size") or 0)))
-            ok, _ = H.download_file(hf, pick["repo"], f["path"], dest, f.get("size"), f.get("sha256"))
-            if not ok:
-                raise RuntimeError("download of %s failed - run Add mode again to resume" % f["path"])
+            name = f["path"].rsplit("/", 1)[-1]
+            log("Downloading %s (%s)..." % (name, "%.2f GiB" % gib(f["size"]) if f.get("size") else "size not listed"))
+            ok, got = H.download_file(hf, pick["repo"], f["path"], dest, f.get("size"), f.get("sha256"))
+            if not ok or not got or not os.path.isfile(got):
+                raise RuntimeError("download of %s failed or could not be verified (see the messages above). "
+                                   "Nothing was switched over; run Add mode again to retry." % name)
         sec = C.register_model(st, root, pick, mode_key)
     C.set_mode(st, mode_key, sec)
     C.save_state(root, st)
@@ -113,7 +116,11 @@ def interactive(root, mode_key, ask, token=None, allow_reuse=True):
         if not is_yes(ask.ask("confirm_" + mode_key, "Type yes to download, anything else to skip: ", "")):
             say("Skipped - nothing was downloaded.")
             return None
-    return apply(root, mode_key, pick, token)
+    try:
+        return apply(root, mode_key, pick, token)
+    except (ValueError, RuntimeError) as ex:      # bad suggestion data or a failed / unverified download
+        say("Could not set up %s mode: %s" % (MODES[mode_key]["label"], ex))
+        return None
 
 
 def main(argv=None):

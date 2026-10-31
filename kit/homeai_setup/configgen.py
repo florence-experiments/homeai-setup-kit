@@ -49,15 +49,49 @@ def model_dir(root, repo):
     return os.path.join(paths(root)["models"], re.sub(r"[^A-Za-z0-9._-]+", "_", repo.replace("/", "__")))
 
 
+class BadChoice(ValueError):
+    """A model suggestion that is missing the data needed to download and register it."""
+
+
+def check_choice(choice, mode_key=None):
+    """Raise BadChoice with a plain-language reason unless `choice` has a repo, a quant and at least one file path
+    (and, for a vision mode, a usable mmproj entry when one is given)."""
+    if not isinstance(choice, dict):
+        raise BadChoice("the model suggestion is empty or unreadable - search again")
+    repo = choice.get("repo")
+    if not isinstance(repo, str) or repo.count("/") != 1 or not all(repo.split("/")):
+        raise BadChoice("the model suggestion has no valid Hugging Face repo name - search again")
+    if not isinstance(choice.get("quant"), str) or not choice["quant"].strip():
+        raise BadChoice("the suggestion for %s does not say which quant to use - search again" % repo)
+    files = choice.get("files")
+    if not isinstance(files, list) or not files:
+        raise BadChoice("the suggestion for %s lists no model files - search again or pick another" % repo)
+    for f in files:
+        if not isinstance(f, dict) or not isinstance(f.get("path"), str) or not f["path"].strip() \
+                or not f["path"].lower().endswith(".gguf"):
+            raise BadChoice("the suggestion for %s has an incomplete file list - search again or pick another" % repo)
+    mm = choice.get("mmproj")
+    if mm and mode_key and MODES.get(mode_key, {}).get("vision"):
+        if not isinstance(mm, dict) or not isinstance(mm.get("path"), str) or not mm["path"].strip():
+            raise BadChoice("the image-encoder (mmproj) entry for %s is incomplete - search again" % repo)
+    return choice
+
+
 def register_model(st, root, choice, mode_key):
     """Add a downloaded choice to the state as a models.ini section; returns the section name."""
+    check_choice(choice, mode_key)
     vision = bool(choice.get("mmproj")) and bool(MODES[mode_key].get("vision"))
     sec = section_name(choice, vision)
     d = model_dir(root, choice["repo"])
     first = sorted(f["path"] for f in choice["files"])[0].rsplit("/", 1)[-1]
+    try:
+        ctx = int(choice.get("ctx") or st["prefs"].get("ctx", 32768))
+        n_cpu_moe = int(choice.get("n_cpu_moe") or 0)
+    except (TypeError, ValueError):
+        raise BadChoice("the suggestion for %s has an unreadable context size - search again" % choice["repo"])
     entry = {"repo": choice["repo"], "quant": choice["quant"], "model": os.path.join(d, first),
              "files": [os.path.join(d, f["path"].rsplit("/", 1)[-1]) for f in choice["files"]],
-             "ctx": int(choice.get("ctx") or st["prefs"].get("ctx", 32768)), "n_cpu_moe": int(choice.get("n_cpu_moe") or 0),
+             "ctx": ctx, "n_cpu_moe": n_cpu_moe,
              "params_b": choice.get("params_b"), "url": choice.get("url"), "thinking": bool(choice.get("thinking"))}
     if vision:
         entry["mmproj"] = os.path.join(d, choice["mmproj"]["path"].rsplit("/", 1)[-1])
