@@ -5,6 +5,7 @@
 The agent only sees extras/openhands/workspace. The UI listens on 127.0.0.1:3000 only. Analytics are switched off.
 No account, no API key: the agent talks to the local AI engine (llama-server) through Docker's host gateway."""
 import json
+import re
 import os
 import subprocess
 import sys
@@ -228,19 +229,200 @@ def _is_active(status):
     return s in ("running", "stuck", "executing", "in_progress", "busy", "working", "awaiting_agent")
 
 
+def _cx(*cmd):
+    """docker exec into the OpenHands container; never throws on a non-zero exit."""
+    r = docker("exec", NAME, *cmd)
+    return r.returncode, (r.stdout or ""), (r.stderr or "")
+
+
+def _is_service_cmd(args):
+    a = args or ""
+    return bool(
+        re.search(r"(^|/)tini(\s|$)", a)
+        or "agent-canvas/entrypoint.sh" in a
+        or re.search(r"(^|/)openhands-agent-server(\s|$)", a)
+        or "openhands.automation.app" in a
+        or "agent-canvas/static-server.mjs" in a
+        or "openhands-code-server" in a
+        or "/openhands/.code-server" in a
+        or "code_server_proxy" in a
+        or re.search(r"(^|\s)ps\s+-eo\s", a)
+    )
+
+
+def _is_keep_cmd(args):
+    return bool(re.search(r"(^|/)(tmux|screen)(\s|$)", args or ""))
+
+
+def _is_idle_shell(args):
+    parts = (args or "").split()
+    if not parts:
+        return False
+    name = os.path.basename(parts[0].strip('"'))
+    if name not in ("bash", "sh", "dash", "ash", "zsh", "fish"):
+        return False
+    if re.search(r"\s-c\s|\s-lc\s", args):
+        return False
+    return all(p.startswith("-") for p in parts[1:])
+
+
+def _cx_ps():
+    code, out, err = _cx("sh", "-c", "ps -eo pid,ppid,etime,args")
+    if code != 0:
+        raise RuntimeError((err or out).strip() or "ps failed")
+    rows = []
+    for line in out.splitlines():
+        m = re.match(r"\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$", line)
+        if not m:
+            continue
+        rows.append({"pid": int(m.group(1)), "ppid": int(m.group(2)),
+                     "etime": m.group(3), "args": m.group(4).strip()})
+    return rows
+
+
+def _children(root, by_parent):
+    out, stack, seen = [], [root], set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        for child in by_parent.get(cur, []):
+            out.append(child)
+            stack.append(child)
+    return out
+
+
+def _tmux_pane_pids():
+    code, out, _ = _cx("sh", "-c", 'find /tmp -type s -path "*/tmux-*/*"')
+    if code != 0:
+        return []
+    pids = []
+    for sock in out.splitlines():
+        sock = sock.strip()
+        if not re.match(r"^/tmp/\S+$", sock):
+            continue
+        c, panes, _ = _cx("sh", "-c", "tmux -S '%s' list-panes -a -F '#{pane_pid}'" % sock)
+        if c != 0:
+            continue
+        for p in panes.splitlines():
+            if p.strip().isdigit() and int(p.strip()) > 1:
+                pids.append(int(p.strip()))
+    return pids
+
+
+def kill_leftover_agent_processes():
+    """End leftover agent tool processes inside the container; leave servers running."""
+    if container_state() != "true":
+        return 0
+    say("Checking for leftover agent processes...")
+    try:
+        procs = _cx_ps()
+    except Exception as e:  # noqa
+        say("Could not inspect the container (%s)." % e)
+        return 0
+    by_pid = {r["pid"]: r for r in procs}
+    by_parent = {}
+    for r in procs:
+        by_parent.setdefault(r["ppid"], []).append(r["pid"])
+    protected = {1}
+    for r in procs:
+        if r["pid"] == 1 or _is_service_cmd(r["args"]):
+            protected.add(r["pid"])
+    tini_ids = [r["pid"] for r in procs if re.search(r"(^|/)tini(\s|$)", r["args"])]
+    kill = []
+
+    def add(pid):
+        if pid <= 1 or pid in protected or pid not in by_pid:
+            return
+        if _is_keep_cmd(by_pid[pid]["args"]):
+            return
+        if by_pid[pid]["ppid"] in protected:
+            return
+        if pid not in kill:
+            kill.append(pid)
+
+    for pane in _tmux_pane_pids():
+        if pane not in by_pid or pane in protected:
+            continue
+        kids = _children(pane, by_parent)
+        if _is_idle_shell(by_pid[pane]["args"]):
+            for k in kids:
+                add(k)
+        else:
+            add(pane)
+            for k in kids:
+                add(k)
+    for r in procs:
+        if _is_keep_cmd(r["args"]):
+            continue
+        if r["ppid"] != 1 and r["ppid"] not in tini_ids:
+            continue
+        if r["pid"] in protected or _is_service_cmd(r["args"]):
+            continue
+        add(r["pid"])
+        for k in _children(r["pid"], by_parent):
+            add(k)
+    if not kill:
+        say("No leftover agent processes.")
+        return 0
+    # leaves first
+    kill.sort(key=lambda pid: (len(_children(pid, by_parent)), -pid))
+    say("Stopping %d leftover process%s:" % (len(kill), "" if len(kill) == 1 else "es"))
+    for pid in kill:
+        say("  PID %s  %s" % (pid, by_pid[pid]["args"]))
+    ids = " ".join(str(pid) for pid in kill)
+    _cx("sh", "-c", "kill -TERM %s" % ids)
+    time.sleep(1)
+    still = []
+    for pid in kill:
+        c, _, _ = _cx("sh", "-c", "kill -0 %s" % pid)
+        if c == 0:
+            still.append(pid)
+    if still:
+        _cx("sh", "-c", "kill -KILL %s" % " ".join(str(pid) for pid in still))
+        time.sleep(0.4)
+    ended = failed = 0
+    for pid in kill:
+        c, _, _ = _cx("sh", "-c", "kill -0 %s" % pid)
+        if c != 0:
+            say("Ended PID %s  %s" % (pid, by_pid[pid]["args"]))
+            ended += 1
+        else:
+            say("Still running PID %s  %s" % (pid, by_pid[pid]["args"]))
+            failed += 1
+    if failed:
+        say("Ended %d, still running %d." % (ended, failed))
+    else:
+        say("Ended %d leftover process%s." % (ended, "" if ended == 1 else "es"))
+    return failed
+
+
 def stop_task():
-    """Interrupt running or stuck conversations; leave the container and the AI engine running."""
+    """Interrupt running or stuck conversations and end leftover agent processes.
+
+    Leaves the container and the AI engine running."""
+    rc = 0
+    container_up = container_state() == "true"
     if not http_ok(API):
         say("OpenHands is not running.")
+        if container_up:
+            if kill_leftover_agent_processes():
+                rc = 1
         return 1
     key = _session_key()
     if not key:
         say("Could not find the OpenHands session key; open the UI and stop the task from there.")
+        if container_up:
+            if kill_leftover_agent_processes():
+                rc = 1
         return 1
     try:
         data = req("GET", "/api/conversations/search", key)
     except Exception as e:  # noqa
         say("Could not list conversations (%s)." % e)
+        if container_up and kill_leftover_agent_processes():
+            return 1
         return 1
     active = []
     for c in _conversations(data):
@@ -252,19 +434,21 @@ def stop_task():
                 active.append(str(cid))
     if not active:
         say("No running OpenHands task.")
-        return 0
-    n = 0
-    for cid in active:
-        try:
-            req("POST", "/api/conversations/%s/interrupt" % cid, key)
-            n += 1
-            say("Interrupted conversation %s." % cid)
-        except Exception as e:  # noqa
-            say("Could not interrupt %s (%s)." % (cid, e))
-    if not n:
-        return 1
+    else:
+        n = 0
+        for cid in active:
+            try:
+                req("POST", "/api/conversations/%s/interrupt" % cid, key)
+                n += 1
+                say("Interrupted conversation %s." % cid)
+            except Exception as e:  # noqa
+                say("Could not interrupt %s (%s)." % (cid, e))
+        if not n:
+            rc = 1
+    if container_up and kill_leftover_agent_processes():
+        rc = 1
     say("The container and the AI engine were left running.")
-    return 0
+    return rc
 
 
 def main():

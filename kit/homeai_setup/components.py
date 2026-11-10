@@ -176,7 +176,7 @@ def install_openhands(root, log=say):
         write(os.path.join(d, "Stop-OpenHands.ps1"),
               "& \"$PSScriptRoot\\..\\..\\python\\python.exe\" \"$PSScriptRoot\\openhands_ctl.py\" stop\n", crlf=True)
         write(os.path.join(d, "Stop-OpenHands-Task.ps1"),
-              "# Interrupts a running OpenHands task; leaves the container and the AI engine running.\n"
+              "# Interrupts a running OpenHands task and ends leftover agent processes; leaves the container and the AI engine running.\n"
               "& \"$PSScriptRoot\\..\\..\\python\\python.exe\" \"$PSScriptRoot\\openhands_ctl.py\" stop-task\n", crlf=True)
     else:
         for name, cmd in (("start-openhands.sh", "start"), ("stop-openhands.sh", "stop"),
