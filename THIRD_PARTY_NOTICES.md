@@ -35,7 +35,7 @@ Licence texts are in `payload/homeai/static/vendor/licenses/`.
 | espeak-ng (bundled inside the `espeakng-loader` package used by kokoro-onnx) | PyPI | GPL-3.0-or-later |
 | phonemizer-fork, onnxruntime, numpy and other pip dependencies | PyPI | Their own licences (mostly MIT / BSD / Apache-2.0) |
 | **Web search (optional)** SearXNG container image `searxng/searxng` | Docker Hub | AGPL-3.0. Runs unmodified, locally, for your own use |
-| **Coding agent (optional)** OpenHands Agent Canvas image `ghcr.io/openhands/agent-canvas:1.33.0` | GitHub Container Registry | MIT (OpenHands core; see the OpenHands repository for any separately licensed parts) |
+| **Coding agent (optional)** OpenHands Agent Canvas image `ghcr.io/openhands/agent-canvas:1.38.0` | GitHub Container Registry | MIT (OpenHands core; see the OpenHands repository for any separately licensed parts) |
 | Docker Desktop / Docker Engine (installed by you, not by the kit) | docker.com | Docker's own terms (Docker Desktop has a subscription agreement for larger companies) |
 | **Security Monitor (optional, Windows)** Sysmon | download.sysinternals.com (Microsoft) | Sysinternals Software License Terms. Downloaded by `Install-All.cmd` and installed only if Microsoft's signature is valid; never redistributed |
 | sysmon-modular configuration (pinned release, SHA-256 checked) | github.com/olafhartong/sysmon-modular | MIT |

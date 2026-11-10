@@ -54,7 +54,7 @@ def main(argv=None, ask=None):
     if comps.get("openhands"):
         offer("openhands", "Remove the OpenHands Docker container and its image?", lambda: (
             subprocess.run(["docker", "rm", "-f", "homeai-openhands"], capture_output=True),
-            subprocess.run(["docker", "rmi", "ghcr.io/openhands/agent-canvas:1.33.0"], capture_output=True)))
+            subprocess.run(["docker", "rmi", "ghcr.io/openhands/agent-canvas:1.38.0"], capture_output=True)))
     if comps.get("searxng"):
         f = os.path.join(root, "extras", "searxng", "compose.yaml")
         offer("searxng", "Remove the SearXNG Docker container, its cache and its image?", lambda: subprocess.run(

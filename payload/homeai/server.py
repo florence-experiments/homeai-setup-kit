@@ -312,7 +312,7 @@ def chat_meta(chat_id):
 
 
 # ---------- OpenHands / Agent Canvas bridge ----------
-# Agent Canvas 1.33 = OpenHands Agent Server 1.58 behind a static server on :3000.
+# Agent Canvas 1.38 = OpenHands Agent Server behind a static server on :3000.
 #   POST /api/conversations  (StartConversationRequest: workspace, agent_profile_id, initial_message{role,content[],run})
 #   auth: header X-Session-API-Key. In local docker mode (AGENT_CANVAS_ALLOW_LAN_SESSION_KEY=true, loopback-only
 #   port) the key is injected into the served /canvas HTML as window.__AGENT_CANVAS_SESSION_API_KEY__ - we read

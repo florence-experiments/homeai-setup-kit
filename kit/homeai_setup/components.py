@@ -31,7 +31,7 @@ WHISPER = [  # (file, size, sha256 or None, git blob sha1)
     ("tokenizer.json", 2128466, None, "15d7bdf9ba25718ca2504eec6a8f02bc55af0a6a"),
     ("vocabulary.txt", 422309, None, "ee695b8d3e3c10d488304e04468efec4ca27554a"),
 ]
-OPENHANDS_IMAGE = "ghcr.io/openhands/agent-canvas:1.33.0"
+OPENHANDS_IMAGE = "ghcr.io/openhands/agent-canvas:1.38.0"
 SEARXNG_IMAGE = "docker.io/searxng/searxng:latest"
 
 # rough download sizes for the summary shown before the user types yes
@@ -175,8 +175,12 @@ def install_openhands(root, log=say):
               "& \"$PSScriptRoot\\..\\..\\python\\python.exe\" \"$PSScriptRoot\\openhands_ctl.py\" start\n", crlf=True)
         write(os.path.join(d, "Stop-OpenHands.ps1"),
               "& \"$PSScriptRoot\\..\\..\\python\\python.exe\" \"$PSScriptRoot\\openhands_ctl.py\" stop\n", crlf=True)
+        write(os.path.join(d, "Stop-OpenHands-Task.ps1"),
+              "# Interrupts a running OpenHands task; leaves the container and the AI engine running.\n"
+              "& \"$PSScriptRoot\\..\\..\\python\\python.exe\" \"$PSScriptRoot\\openhands_ctl.py\" stop-task\n", crlf=True)
     else:
-        for name, cmd in (("start-openhands.sh", "start"), ("stop-openhands.sh", "stop")):
+        for name, cmd in (("start-openhands.sh", "start"), ("stop-openhands.sh", "stop"),
+                          ("stop-openhands-task.sh", "stop-task")):
             p = os.path.join(d, name)
             write(p, "#!/usr/bin/env bash\n# OpenHands (Docker) wired to HomeAI's local AI engine.\n"
                      "cd \"$(dirname \"$0\")\" && exec \"%s\" openhands_ctl.py %s \"$@\"\n" % (sys.executable, cmd))

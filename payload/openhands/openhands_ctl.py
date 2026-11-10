@@ -1,6 +1,6 @@
 """Start / stop OpenHands (Agent Canvas) in Docker, wired to HomeAI's local AI engine.
 
-  python openhands_ctl.py start [--no-browser] | stop | status
+  python openhands_ctl.py start [--no-browser] | stop | stop-task | status
 
 The agent only sees extras/openhands/workspace. The UI listens on 127.0.0.1:3000 only. Analytics are switched off.
 No account, no API key: the agent talks to the local AI engine (llama-server) through Docker's host gateway."""
@@ -15,7 +15,7 @@ import webbrowser
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "kit"))
-IMAGE = "ghcr.io/openhands/agent-canvas:1.33.0"
+IMAGE = "ghcr.io/openhands/agent-canvas:1.38.0"
 NAME = "homeai-openhands"
 UI = "http://127.0.0.1:3000/canvas"
 API = "http://127.0.0.1:3000"
@@ -157,7 +157,7 @@ def configure():
         key = f.read().strip()
     llm = {"model": "openai/" + sec, "base_url": "http://host.docker.internal:8081/v1", "api_key": "sk-local-no-key",
            "api_mode": "chat", "timeout": 900, "stream_idle_timeout": 600, "num_retries": 3,
-           "max_input_tokens": max(4096, ctx - 8192), "max_output_tokens": min(16384, max(1024, ctx // 4)),
+           "max_input_tokens": max(4096, ctx - 8192), "max_output_tokens": min(16384, max(1024, ctx // 2)),
            "temperature": 0.6, "caching_prompt": False, "native_tool_calling": True,
            "capability_overrides": {"supports_responses_api": False, "supports_prompt_cache": False,
                                     "supports_reasoning_effort": False}}
@@ -204,12 +204,77 @@ def stop():
     return 0
 
 
+def _session_key():
+    kf = os.path.join(HERE, "state", "agent-canvas", "api-key.txt")
+    if not os.path.isfile(kf):
+        return None
+    with open(kf, encoding="utf-8") as f:
+        return f.read().strip() or None
+
+
+def _conversations(data):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("conversations", "items", "results", "data"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+    return []
+
+
+def _is_active(status):
+    s = str(status or "").strip().lower().replace("-", "_")
+    return s in ("running", "stuck", "executing", "in_progress", "busy", "working", "awaiting_agent")
+
+
+def stop_task():
+    """Interrupt running or stuck conversations; leave the container and the AI engine running."""
+    if not http_ok(API):
+        say("OpenHands is not running.")
+        return 1
+    key = _session_key()
+    if not key:
+        say("Could not find the OpenHands session key; open the UI and stop the task from there.")
+        return 1
+    try:
+        data = req("GET", "/api/conversations/search", key)
+    except Exception as e:  # noqa
+        say("Could not list conversations (%s)." % e)
+        return 1
+    active = []
+    for c in _conversations(data):
+        if not isinstance(c, dict):
+            continue
+        if _is_active(c.get("execution_status") or c.get("status")):
+            cid = c.get("id") or c.get("conversation_id")
+            if cid:
+                active.append(str(cid))
+    if not active:
+        say("No running OpenHands task.")
+        return 0
+    n = 0
+    for cid in active:
+        try:
+            req("POST", "/api/conversations/%s/interrupt" % cid, key)
+            n += 1
+            say("Interrupted conversation %s." % cid)
+        except Exception as e:  # noqa
+            say("Could not interrupt %s (%s)." % (cid, e))
+    if not n:
+        return 1
+    say("The container and the AI engine were left running.")
+    return 0
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "start"
     if cmd == "start":
         return start("--no-browser" not in sys.argv)
     if cmd == "stop":
         return stop()
+    if cmd in ("stop-task", "interrupt"):
+        return stop_task()
     if cmd == "status":
         print("running" if http_ok(UI) else "stopped")
         return 0

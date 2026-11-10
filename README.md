@@ -103,7 +103,7 @@ Setup asks about each of these. Run setup again at any time to add one; your cha
 |---|---|---|
 | **Web search (SearXNG)** | Private meta-search on `127.0.0.1:8888`, used by HomeAI's web button. Setup generates a fresh secret key. | Docker |
 | **Voice** | Talk to HomeAI and hear its answers. Speech-to-text uses faster-whisper small.en; text-to-speech uses Kokoro. Both run on the CPU, offline. | About 1.2 GB download |
-| **OpenHands** | An AI coding agent in a Docker sandbox, at `127.0.0.1:3000`. It is wired to your local model, has analytics off, and can only see `extras/openhands/workspace`. | Docker, about 3.5 GB image |
+| **OpenHands** | An AI coding agent in a Docker sandbox (Agent Canvas 1.38.0), at `127.0.0.1:3000`. It is wired to your local model, has analytics off, and can only see `extras/openhands/workspace`. To stop a running task without shutting the container down, run `Stop-OpenHands-Task.ps1` (Windows) or `stop-openhands-task.sh` (Linux) in `extras/openhands`. | Docker, about 3.5 GB image |
 | **Model Updater** | Checks Hugging Face for better models for your installed modes. It swaps a model only after you type yes, can undo a swap, and offers to delete unused models one by one. | - |
 | **Security Monitor** (Windows, advanced) | Background watcher. It closes AI programs that reach the internet without approval and warns about port scans, screen capture and changes to HomeAI's files. Uses Sysmon and offline DB-IP country files, both downloaded when you run its installer. | One admin run of `extras\security\Install-All.cmd` |
 
@@ -127,7 +127,10 @@ Long documents, Image prompts, Captions, Music and Android.
 The updater shows better matches for each installed mode and switches a mode only after you type yes. The old model
 is kept so you can **undo** the switch. Use *Delete models no mode uses* to free disk space; it asks before each file.
 
-To update the llama.cpp engine itself, run setup again. It keeps your models and chats.
+To update the llama.cpp engine itself, run setup again. It keeps your models and chats. A newer llama.cpp
+build is not always faster: in testing, b12244 was slower than b11840 on Vulkan (prompt processing and
+token generation, and it used more shared memory). If a new build feels slower, keep the copy you already
+have; setup only replaces the engine when you run it again.
 
 ## Starting and stopping
 
@@ -186,6 +189,7 @@ both kinds across modes.
 **It's slow. What can I do?**
 - Pick *Fast* during setup, or use a smaller model with *Add mode*.
 - Lower the context size in `engine/models.ini`.
+- If replies feel slower after an engine update, a newer llama.cpp is not always faster (see [Updating models](#updating-models)); you can keep a known-good build.
 - On a laptop, make sure the dedicated graphics card is used and its drivers are current.
 - Without a graphics card, expect a few words per second from mid-size models.
 
@@ -195,7 +199,9 @@ Vulkan, which ships with current drivers. Setup falls back to the CPU build if n
 
 **Can I use my own GGUF file?**
 Yes. Add a `[section]` to `engine/models.ini` with `model = <path to the .gguf file>`, then reload HomeAI. You can
-also point an existing mode at it with *Add mode > Use a model you already have*.
+also point an existing mode at it with *Add mode > Use a model you already have*. New installs set
+`n-predict = 16384` in the `[*]` section so replies are capped at 16,384 tokens (a client `max_tokens` value still
+wins). Existing installs can add that line themselves.
 
 **Can I access HomeAI from my phone?**
 Not by default; everything is bound to 127.0.0.1 for safety, and HomeAI has no login of its own. If you really need

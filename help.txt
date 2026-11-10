@@ -19,7 +19,7 @@ BETTER MODELS LATER
 FILES (inside your HomeAI folder)
 - homeai\data ........ your chats, presets and settings
 - models ............. downloaded AI models
-- engine\models.ini .. model settings for the AI engine (editable)
+- engine\models.ini .. model settings for the AI engine (editable; n-predict caps reply length)
 - logs ............... logs from the last start (safe to delete)
 
 IF SOMETHING GOES WRONG
@@ -27,6 +27,9 @@ IF SOMETHING GOES WRONG
 - Look at logs\engine.log and logs\homeai.log.
 - Run setup again: it repairs the install and keeps your chats and models.
 - Web search and OpenHands need Docker to be running.
+- To stop a running OpenHands task without shutting the container down, run
+  extras\openhands\Stop-OpenHands-Task.ps1 (Windows) or
+  extras/openhands/stop-openhands-task.sh (Linux).
 
 PRIVACY
 - Everything local; no telemetry.

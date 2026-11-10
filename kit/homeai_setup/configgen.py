@@ -114,7 +114,7 @@ def models_ini_text(st):
            "; Written by the HomeAI Setup Kit. One [section] per model; the section name is the model id HomeAI shows.",
            "; Keys are llama-server option names without the leading dashes. Edit freely; re-running 'Add mode' only adds sections.",
            "; llama-server fits each model to your memory automatically (--fit is on by default).", "",
-           "[*]", "parallel = 1", "jinja = true", ""]
+           "[*]", "parallel = 1", "jinja = true", "n-predict = 16384", ""]
     for sec, m in sorted(st["models"].items()):
         out.append("[%s]" % sec)
         out.append("model = %s" % m["model"])
