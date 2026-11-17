@@ -663,3 +663,21 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 .pcard p{font-size:11px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pcard .pm{margin-top:6px;font-size:10px}
 @media (max-width:760px){.preset-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* model picker: scroll when the list is taller than the window (2026-11-17) */
+.mp-menu{max-height:calc(100vh - 90px);overflow-y:auto;overscroll-behavior:contain}
+
+/* composer: raised off the bottom edge and deeper (2026-11-17) */
+.composer-wrap{padding-bottom:48px}
+.composer textarea{min-height:110px;max-height:420px}
+
+/* welcome screen: content starts near the top instead of centred (2026-11-17) */
+.hero{justify-content:flex-start;min-height:0;padding-top:14px}
+
+/* welcome screen only: text box sits ~1cm under the welcome content; normal chats keep it at the bottom (2026-11-17) */
+.main:has(.hero) .scroller{flex:0 1 auto}
+.main:has(.hero) .thread{padding-bottom:18px}
+.main:has(.hero) .hero{padding-bottom:0}
+
+/* welcome chips are GitHub links now (2026-11-17) */
+a.suggest{text-decoration:none;display:inline-block}

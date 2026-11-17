@@ -6,6 +6,9 @@
 - **HomeAI web access: links you paste are now read.** With the Web toggle on, up to 3 links in your message are opened and read (up to 12,000 characters each) and placed first in the sources. The search query no longer includes the raw URLs.
 - **JavaScript pages.** When a page's plain download has almost no text (for example Google Sites or many shops), HomeAI retries it in headless Chromium through Playwright. This is optional: install it with `py -3 -m pip install playwright` and `py -3 -m playwright install chromium-headless-shell`. Without it, HomeAI falls back to the plain text as before. The rendered page may only load public http(s) addresses, and images, media and fonts are skipped.
 - **Welcome screen** shows all helpers as smaller cards, not just the first 3.
+- **Smarter web search when you paste a link.** HomeAI reads the linked page first and searches on its topic (the page title, any boards or platforms it mentions, plus `github`) instead of the sentence around the link, which used to pull in unrelated results. A GitHub link searches on its owner and repo name. Messages without a link search as before.
+- **Welcome screen layout.** The content starts near the top, the prompt box sits just under it (it returns to the bottom once a chat starts), and the box is taller. The example prompts are replaced by links to the GitHub projects HomeAI is built on: llama.cpp releases, ComfyUI, SearXNG, Playwright, faster-whisper and Kokoro.
+- **Model picker scrolls** when the list is taller than the window.
 
 ## 2026-11-10
 

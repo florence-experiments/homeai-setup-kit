@@ -680,6 +680,46 @@ def fetch_page_text(url, limit=WEB_PAGE_CHARS):
     return txt[:limit].rstrip() + (" …" if len(txt) > limit else "")
 
 
+_TOPIC_JUNK = re.compile(r"\b(set ?up|tutorial|guide|home ?page|homepage|docs?|documentation|welcome|download|readme)\b", re.I)
+_TOPIC_SKIP = ("skip to", "search this site", "embedded files", "report abuse", "sign in", "cookie", "page image", "google sites", "menu")
+_HW_TERMS = ["ESP32-S3", "ESP32-C3", "ESP32-C6", "ESP32-P4", "ESP32", "CYD", "Arduino", "Raspberry Pi", "Pico", "RP2040", "RP2350",
+             "STM32", "LVGL", "ADS-B", "LoRa", "Meshtastic", "ESPHome", "Home Assistant", "ComfyUI", "llama.cpp"]
+
+
+def link_topic_query(linked):
+    """When the message has a link, search on the linked page's topic (its title + hardware terms + github)
+    instead of the user's sentence, which pulls in junk ("bigger 5 inch screen" -> monitor adverts). Added 2026-11-17."""
+    for r in linked:
+        u = urllib.parse.urlsplit(r.get("url") or "")
+        parts = [x for x in u.path.split("/") if x]
+        if u.netloc.lower().endswith("github.com") and len(parts) >= 2:
+            return f"{parts[0]} {parts[1]} github"
+        text = r.get("text") or ""
+        if not text:
+            continue
+        title = ""
+        for line in text.splitlines()[:40]:
+            line = " ".join(line.replace("#", " ").split())
+            low = line.lower()
+            if not line or low.startswith("http") or any(k in low for k in _TOPIC_SKIP):
+                continue
+            if 2 <= len(line.split()) <= 12 and len(line) <= 100:
+                title = line
+                break
+        title = " ".join(_TOPIC_JUNK.sub(" ", re.sub(r"[|&:()\[\]\u2013\u2014]+|\s-\s", " ", title)).split())
+        if len(title) < 4:
+            continue
+        low = text[:20000].lower()
+        terms = []
+        for t in _HW_TERMS:
+            if t.lower() in low and t.lower() not in title.lower() and not any(t.lower() in x.lower() for x in terms):
+                terms.append(t)
+            if len(terms) >= 3:
+                break
+        return " ".join([title] + terms + ["github"])[:200]
+    return ""
+
+
 def web_context(results):
     """The block the UI puts in front of the user's message (numbers match the Sources list)."""
     lines = ["Web results (cite as [1], [2]...). Current date: %s. Use them when relevant, cite the numbers inline, "
@@ -990,6 +1030,10 @@ class Handler(BaseHTTPRequestHandler):
             lts = [threading.Thread(target=grab_link, args=(r,), daemon=True) for r in linked]
             for t in lts:
                 t.start()
+            if q:  # search on the linked page's topic, not the sentence around the link
+                for t in lts:
+                    t.join(WEB_FETCH_TIMEOUT + WEB_RENDER_TIMEOUT + 15)
+                q = link_topic_query(linked) or q
         results = []
         if q:
             try:

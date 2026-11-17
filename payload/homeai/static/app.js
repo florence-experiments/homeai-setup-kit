@@ -460,11 +460,11 @@ function greeting() { const h = new Date().getHours(); return h < 5 ? 'Up late' 
 function renderThread() {
   const th = $('#thread');
   if (!S.chat || !S.chat.messages.length) {
-    const sugg = ['Write a Python script that renames photos by EXIF date', 'Explain the math behind softmax with LaTeX', 'Plan a week of easy dinners for two', 'Summarise the pros and cons of solar panels'];
+    const sugg = [['llama.cpp releases', 'https://github.com/ggml-org/llama.cpp/releases'], ['ComfyUI', 'https://github.com/Comfy-Org/ComfyUI'], ['SearXNG (web search)', 'https://github.com/searxng/searxng'], ['Playwright (page reader)', 'https://github.com/microsoft/playwright-python'], ['faster-whisper (voice in)', 'https://github.com/SYSTRAN/faster-whisper'], ['Kokoro (voice out)', 'https://github.com/hexgrad/kokoro']];
     th.innerHTML = `<div class="hero"><div class="hero-orb"></div><h1>${greeting()}, <span>what shall we make?</span></h1>
       <p>Local, private, fast — running on your own computer via llama.cpp.</p>
       <div class="preset-cards">${S.presets.map(p => `<button class="pcard" data-act="apply-preset" data-id="${esc(p.id)}"><div class="pi" style="background:${esc(p.color)}">${icon(p.icon || 'sparkles')}</div><h3>${esc(p.name)}</h3>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}<div class="pm">${esc(presetModelLabel(p))}</div></button>`).join('')}</div>
-      <div class="suggests">${sugg.map(s => `<button class="suggest" data-act="suggest">${esc(s)}</button>`).join('')}</div></div>`;
+      <div class="suggests">${sugg.map(([n, u]) => `<a class="suggest" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}">${esc(n)} &#8599;</a>`).join('')}</div></div>`;
     updateJump();
     $$('.pcard', th).forEach(c => c.addEventListener('pointermove', e => { const r = c.getBoundingClientRect(); c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px'); }));
     return;
