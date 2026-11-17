@@ -653,3 +653,13 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;bac
 #amYes{width:120px}
 .am-choice a svg,.am-ok svg,.am-body svg{width:13px;height:13px;vertical-align:-2px}
 .credit{font-size:10px;line-height:1.2;text-align:center;opacity:.4;color:var(--text-3);margin-top:4px;user-select:none;pointer-events:none}
+
+/* compact helper cards: all presets on the welcome screen (added 2026-11-17) */
+.preset-cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-width:880px}
+.pcard{padding:10px 12px;border-radius:12px}
+.pcard .pi{width:24px;height:24px;border-radius:7px;margin-bottom:6px}
+.pcard .pi svg{width:14px;height:14px}
+.pcard h3{font-size:13px;margin:0 0 2px}
+.pcard p{font-size:11px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pcard .pm{margin-top:6px;font-size:10px}
+@media (max-width:760px){.preset-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}

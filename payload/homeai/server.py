@@ -427,6 +427,10 @@ WEB_FETCH_PAGES = 3
 WEB_FETCH_TIMEOUT = 8
 WEB_FETCH_MAX_BYTES = 1 << 20
 WEB_PAGE_CHARS = 3000
+WEB_LINK_CHARS = 12000      # pages the user linked in the message are read further
+WEB_MAX_LINKS = 3
+WEB_RENDER_MIN = 400        # plain text shorter than this -> retry in headless Chromium (JavaScript pages)
+WEB_RENDER_TIMEOUT = 20
 WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 _NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # never route through a system proxy
 
@@ -526,7 +530,7 @@ class _PublicOnlyRedirects(urllib.request.HTTPRedirectHandler):
 _PAGE_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _PublicOnlyRedirects())
 
 
-def fetch_page_text(url):
+def _plain_page_text(url):
     u = urllib.parse.urlsplit(url)
     if u.scheme not in ("http", "https") or not _public_host(u.hostname or ""):
         raise ValueError("not a public http(s) address")
@@ -542,8 +546,67 @@ def fetch_page_text(url):
         txt = raw.decode(charset, "replace")
     except LookupError:
         txt = raw.decode("utf-8", "replace")
-    txt = txt if ctype.startswith("text/plain") else html_to_text(txt)
-    return txt[:WEB_PAGE_CHARS].rstrip() + (" …" if len(txt) > WEB_PAGE_CHARS else "")
+    return txt if ctype.startswith("text/plain") else html_to_text(txt)
+
+
+_HOST_OK = {}
+
+
+def _host_ok_cached(host):
+    if host not in _HOST_OK:
+        _HOST_OK[host] = _public_host(host)
+    return _HOST_OK[host]
+
+
+def render_page_text(url):
+    """Load the page in headless Chromium (Playwright) so JavaScript sites (Google Sites, shops...) have text.
+    Every request the page makes is checked: http(s) to public addresses only; images/media/fonts are skipped."""
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not _public_host(u.hostname or ""):
+        raise ValueError("not a public http(s) address")
+    from playwright.sync_api import sync_playwright
+
+    def guard(route):
+        r = route.request
+        ru = urllib.parse.urlsplit(r.url)
+        if r.resource_type in ("image", "media", "font") or ru.scheme not in ("http", "https") \
+                or not _host_ok_cached(ru.hostname or ""):
+            return route.abort()
+        return route.continue_()
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(headless=True)
+        try:
+            ctx = b.new_context(user_agent=WEB_UA, locale="en-GB", service_workers="block")
+            ctx.route("**/*", guard)
+            pg = ctx.new_page()
+            pg.goto(url, wait_until="domcontentloaded", timeout=WEB_RENDER_TIMEOUT * 1000)
+            try:
+                pg.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            txt = pg.inner_text("body")
+        finally:
+            b.close()
+    return "\n".join(x for x in (" ".join(ln.split()) for ln in txt.splitlines()) if x)
+
+
+def fetch_page_text(url, limit=WEB_PAGE_CHARS):
+    """Plain download first; if it fails or has almost no text, render it with JavaScript."""
+    txt, err = "", None
+    try:
+        txt = _plain_page_text(url)
+    except Exception as e:  # noqa
+        err = e
+    if len(txt) < WEB_RENDER_MIN:
+        try:
+            r = render_page_text(url)
+            if len(r) > len(txt):
+                txt = r
+        except Exception as e:  # noqa
+            if not txt:
+                raise err or e
+    return txt[:limit].rstrip() + (" …" if len(txt) > limit else "")
 
 
 def web_context(results):
@@ -834,17 +897,41 @@ class Handler(BaseHTTPRequestHandler):
             self.read_body()
             return self.send_error_json(405, "method not allowed")
         req = self.read_json_body()
-        q = " ".join(str(req.get("q") or "").split())[:200]
-        if not q:
+        links = []
+        for x in (req.get("urls") or [])[:WEB_MAX_LINKS]:
+            x = str(x).strip()
+            if x.startswith(("http://", "https://")) and len(x) <= 2000 and x not in links:
+                links.append(x)
+        q = " ".join(re.sub(r"https?://\S+", " ", str(req.get("q") or "")).split())[:200]
+        if not q and not links:
             return self.send_error_json(400, "empty query")
         n = max(1, min(WEB_MAX_RESULTS, int(req.get("n") or 6)))
         t0 = time.time()
-        try:
-            results = searx_search(q, n)
-        except Exception as e:  # noqa
-            why = getattr(e, "reason", None) or e
-            return self.send_json({"error": {"code": 502, "message": f"SearXNG is not reachable at {CFG['searxng_url']} ({why})"},
-                                   "query": q, "results": []}, 502)
+        linked = []
+        if links:
+            def grab_link(r):
+                try:
+                    r["text"] = fetch_page_text(r["url"], WEB_LINK_CHARS)
+                except Exception as e:  # noqa
+                    r["fetch_error"] = f"{type(e).__name__}: {e}"[:160]
+                    r["content"] = "(this linked page could not be read: %s)" % r["fetch_error"]
+            linked = [{"title": "Linked page: " + x[:150], "url": x, "content": ""} for x in links]
+            lts = [threading.Thread(target=grab_link, args=(r,), daemon=True) for r in linked]
+            for t in lts:
+                t.start()
+        results = []
+        if q:
+            try:
+                results = searx_search(q, n)
+            except Exception as e:  # noqa
+                if not linked:
+                    why = getattr(e, "reason", None) or e
+                    return self.send_json({"error": {"code": 502, "message": f"SearXNG is not reachable at {CFG['searxng_url']} ({why})"},
+                                           "query": q, "results": []}, 502)
+        if linked:
+            for t in lts:
+                t.join(WEB_FETCH_TIMEOUT + WEB_RENDER_TIMEOUT + 15)
+            results = [r for r in results if r["url"] not in links]
         fetched = 0
         if req.get("fetch") and results:
             def grab(r):
@@ -856,8 +943,9 @@ class Handler(BaseHTTPRequestHandler):
             for t in ts:
                 t.start()
             for t in ts:
-                t.join(WEB_FETCH_TIMEOUT + 4)
-            fetched = sum(1 for r in results if r.get("text"))
+                t.join(WEB_FETCH_TIMEOUT + WEB_RENDER_TIMEOUT + 15)
+        results = linked + results
+        fetched = sum(1 for r in results if r.get("text"))
         self.send_json({"ok": True, "query": q, "results": results, "fetched": fetched,
                         "context": web_context(results) if results else "", "ms": int((time.time() - t0) * 1000)})
 

@@ -461,7 +461,7 @@ function renderThread() {
     const sugg = ['Write a Python script that renames photos by EXIF date', 'Explain the math behind softmax with LaTeX', 'Plan a week of easy dinners for two', 'Summarise the pros and cons of solar panels'];
     th.innerHTML = `<div class="hero"><div class="hero-orb"></div><h1>${greeting()}, <span>what shall we make?</span></h1>
       <p>Local, private, fast — running on your own computer via llama.cpp.</p>
-      <div class="preset-cards">${S.presets.slice(0, 3).map(p => `<button class="pcard" data-act="apply-preset" data-id="${esc(p.id)}"><div class="pi" style="background:${esc(p.color)}">${icon(p.icon || 'sparkles')}</div><h3>${esc(p.name)}</h3>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}<div class="pm">${esc(presetModelLabel(p))}</div></button>`).join('')}</div>
+      <div class="preset-cards">${S.presets.map(p => `<button class="pcard" data-act="apply-preset" data-id="${esc(p.id)}"><div class="pi" style="background:${esc(p.color)}">${icon(p.icon || 'sparkles')}</div><h3>${esc(p.name)}</h3>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}<div class="pm">${esc(presetModelLabel(p))}</div></button>`).join('')}</div>
       <div class="suggests">${sugg.map(s => `<button class="suggest" data-act="suggest">${esc(s)}</button>`).join('')}</div></div>`;
     updateJump();
     $$('.pcard', th).forEach(c => c.addEventListener('pointermove', e => { const r = c.getBoundingClientRect(); c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px'); }));
@@ -1884,18 +1884,26 @@ const W = { cfg: { ...WEB_DEFAULTS }, alive: null };
 const WEB_FETCH_TIP = 'Also reads the text of the top 3 result pages (8 s, 1 MB each). The pages are downloaded by HomeAI itself (python.exe), so HomeAI must be allowed in the security watcher, otherwise it closes HomeAI. Searching alone only talks to SearXNG on 127.0.0.1.';
 function webLoadCfg() { try { W.cfg = { ...WEB_DEFAULTS, ...(JSON.parse(localStorage.getItem(WEB_KEY) || '{}') || {}) }; } catch { W.cfg = { ...WEB_DEFAULTS }; } }
 const webSaveCfg = () => { try { localStorage.setItem(WEB_KEY, JSON.stringify(W.cfg)); } catch { } };
+function webText(um) {
+  const c = um?.content;
+  return Array.isArray(c) ? c.filter(x => x.type === 'text').map(x => x.text || '').join(' ') : String(c || '');
+}
+function webLinks(um) {
+  const m = webText(um).match(/https?:\/\/[^\s<>"')\]]+/g) || [];
+  return [...new Set(m.map(u => u.replace(/[.,;:!?]+$/, '')))].slice(0, 3);
+}
 function webQuery(um) {
-  const t = String(um?.content || '').replace(/\s+/g, ' ').trim();
+  const t = webText(um).replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim();
   if (t.length <= 200) return t;
   const cut = t.slice(0, 200); const i = cut.lastIndexOf(' ');
   return i > 120 ? cut.slice(0, i) : cut;
 }
 /* resolves to the context block (or null: no query / no results / SearXNG down); rejects only when stopped */
 async function webSearch(am, um, signal) {
-  const q = webQuery(um); if (!q) return null;
+  const q = webQuery(um); const urls = webLinks(um); if (!q && !urls.length) return null;
   am.web = { query: q, state: 'searching' };
   try {
-    const r = await fetch('/api/websearch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, n: W.cfg.n, fetch: !!W.cfg.fetch }), signal });
+    const r = await fetch('/api/websearch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q, urls, n: W.cfg.n, fetch: !!W.cfg.fetch }), signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j?.error?.message || 'HTTP ' + r.status);
     W.alive = true;

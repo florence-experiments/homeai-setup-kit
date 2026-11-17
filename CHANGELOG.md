@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-17
+
+- **HomeAI web access: links you paste are now read.** With the Web toggle on, up to 3 links in your message are opened and read (up to 12,000 characters each) and placed first in the sources. The search query no longer includes the raw URLs.
+- **JavaScript pages.** When a page's plain download has almost no text (for example Google Sites or many shops), HomeAI retries it in headless Chromium through Playwright. This is optional: install it with `py -3 -m pip install playwright` and `py -3 -m playwright install chromium-headless-shell`. Without it, HomeAI falls back to the plain text as before. The rendered page may only load public http(s) addresses, and images, media and fonts are skipped.
+- **Welcome screen** shows all helpers as smaller cards, not just the first 3.
+
 ## 2026-11-10
 
 - **OpenHands** now uses the official Agent Canvas image `ghcr.io/openhands/agent-canvas:1.38.0` (was 1.33.0). Re-run setup, or pull the new image and recreate the container, to switch an existing install.
