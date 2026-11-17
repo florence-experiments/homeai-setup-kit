@@ -108,6 +108,77 @@ LLAMA = urllib.parse.urlsplit(CFG["llama_url"])
 CHATS_DIR = os.path.join(CFG["data_dir"], "chats")
 os.makedirs(CHATS_DIR, exist_ok=True)
 
+# ---------- optional cloud models (OpenRouter) ----------
+# data/cloud.json lists extra models that show up in the model picker as "cloud/<name>". Only requests for
+# those ids go to the cloud (HTTPS to base_url); everything else still goes to llama-server. Auto routing never
+# picks a cloud model. The API key is read from key_file (or OPENROUTER_API_KEY); it is never logged or sent
+# to the browser. cloud.json is re-read on every request, so enabling a model needs no restart.
+CLOUD_FILE = os.path.join(CFG["data_dir"], "cloud.json")
+CLOUD_KEY_FILE = os.path.join(CFG["data_dir"], "openrouter.key")
+# llama.cpp-only request fields that a hosted API does not understand
+CLOUD_DROP = {"cache_prompt", "return_progress", "id_slot", "slot_id", "n_probs", "samplers", "timings_per_token",
+              "post_sampling_probs", "n_keep", "n_cmpl", "t_max_predict_ms", "t_max_prompt_ms", "chat_template_kwargs",
+              "repeat_last_n", "dry_multiplier", "dry_base", "dry_allowed_length", "dry_penalty_last_n",
+              "dry_sequence_breakers", "xtc_probability", "xtc_threshold", "typical_p", "dynatemp_range",
+              "dynatemp_exponent", "mirostat", "mirostat_tau", "mirostat_eta", "ignore_eos", "n_indent", "lora",
+              "grammar", "json_schema", "repeat_penalty", "n_predict"}
+
+
+def cloud_config():
+    """-> dict with the enabled cloud models, or None when cloud.json is missing / disabled."""
+    try:
+        with open(CLOUD_FILE, "r", encoding="utf-8-sig") as f:
+            c = json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as e:  # noqa
+        print(f"[HomeAI] WARNING: could not read cloud.json: {e}", file=sys.stderr)
+        return None
+    if not isinstance(c, dict) or not c.get("enabled"):
+        return None
+    c["models"] = [m for m in (c.get("models") or []) if isinstance(m, dict) and m.get("id") and m.get("upstream")
+                   and m.get("enabled", True)]
+    return c
+
+
+def cloud_lookup(model_id):
+    """-> (cloud config, model entry) when model_id is an enabled cloud model, else (None, None)."""
+    c = cloud_config() if isinstance(model_id, str) and model_id else None
+    for m in (c["models"] if c else []):
+        if m["id"] == model_id:
+            return c, m
+    return None, None
+
+
+def cloud_key_path(c):
+    return (c or {}).get("key_file") or CLOUD_KEY_FILE
+
+
+def cloud_key(c):
+    try:
+        with open(cloud_key_path(c), "r", encoding="utf-8-sig") as f:
+            k = f.read().strip()
+        if k:
+            return k
+    except OSError:
+        pass
+    return os.environ.get("OPENROUTER_API_KEY", "").strip()
+
+
+def cloud_model_entries(with_status):
+    c = cloud_config()
+    out = []
+    for m in (c["models"] if c else []):
+        e = {"id": m["id"], "object": "model", "owned_by": "openrouter", "cloud": True,
+             "label": m.get("label") or m["id"], "upstream": m["upstream"],
+             "architecture": {"input_modalities": ["text", "image"] if m.get("vision") else ["text"]}}
+        if m.get("ctx"):
+            e["context_length"] = int(m["ctx"])
+        if with_status:
+            e["status"] = {"value": "loaded"}  # always "ready": nothing to load or eject
+        out.append(e)
+    return out
+
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 WRITE_LOCK = threading.Lock()
 _meta_cache = {}  # id -> (mtime, meta)
@@ -1001,6 +1072,18 @@ class Handler(BaseHTTPRequestHandler):
                     body = apply_safety(body or b"")
                 except ValueError as e:
                     return self.send_error_json(400, str(e))
+        if method == "POST" and body and body.lstrip()[:1] == b"{":
+            try:
+                req = json.loads(body.decode("utf-8"))
+            except ValueError:
+                req = None
+            c, cm = cloud_lookup(req.get("model")) if isinstance(req, dict) else (None, None)
+            if cm:
+                if sub in ("/models/load", "/models/unload"):
+                    return self.send_json({"success": True, "cloud": True})  # nothing to load for a cloud model
+                if sub in ("/v1/chat/completions", "/chat/completions"):
+                    return self.cloud_proxy(c, cm, req)
+                return self.send_error_json(400, f"{sub} is not available for cloud models")
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS
                    and k.lower() not in ("origin", "referer", "cookie", "accept-encoding")}
         headers["Accept-Encoding"] = "identity"
@@ -1012,15 +1095,82 @@ class Handler(BaseHTTPRequestHandler):
         port = LLAMA.port or (443 if LLAMA.scheme == "https" else 80)
         # long timeout: in router mode a request may block while a model is being swapped in
         conn = conn_cls(LLAMA.hostname, port, timeout=1800)
+        if method == "GET" and sub in ("/models", "/v1/models"):
+            return self.models_with_cloud(conn, target, headers)
+        self.relay(conn, method, target, body, headers, f"llama-server unreachable at {CFG['llama_url']}")
+
+    def models_with_cloud(self, conn, target, headers):
+        """Model list from llama-server plus the enabled cloud models (if any)."""
+        try:
+            try:
+                conn.request("GET", target, headers=headers)
+                up = conn.getresponse()
+                raw = up.read()
+            except (ConnectionRefusedError, OSError) as e:
+                return self.send_error_json(502, f"llama-server unreachable at {CFG['llama_url']} ({e})")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        try:
+            d = json.loads(raw.decode("utf-8")) if up.status == 200 else None
+        except ValueError:
+            d = None
+        if not isinstance(d, dict) or not isinstance(d.get("data"), list):
+            self.send_response(up.status, up.reason)
+            self.send_header("Content-Type", up.getheader("Content-Type") or "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        have = {m.get("id") for m in d["data"] if isinstance(m, dict)}
+        with_status = any(isinstance(m, dict) and "status" in m for m in d["data"])
+        d["data"] += [e for e in cloud_model_entries(with_status) if e["id"] not in have]
+        return self.send_json(d)
+
+    def cloud_proxy(self, c, cm, req):
+        """Forward one chat request to the cloud API (OpenRouter), streaming like the local path."""
+        key = cloud_key(c)
+        if not key:
+            return self.send_error_json(401, f"OpenRouter key missing: put it in {cloud_key_path(c)}")
+        base = urllib.parse.urlsplit(str(c.get("base_url") or "https://openrouter.ai/api/v1").rstrip("/"))
+        if base.scheme != "https" or not base.hostname:
+            return self.send_error_json(400, "cloud.json base_url must be an https:// address")
+        p = dict(req)
+        p["model"] = cm["upstream"]
+        ctk = p.get("chat_template_kwargs")
+        if isinstance(ctk, dict) and "enable_thinking" in ctk and "reasoning" not in p:
+            p["reasoning"] = {"enabled": bool(ctk["enable_thinking"])}  # Think / No think toggle
+        if "repeat_penalty" in p and "repetition_penalty" not in p:
+            p["repetition_penalty"] = p["repeat_penalty"]
+        if "n_predict" in p and "max_tokens" not in p and isinstance(p["n_predict"], int) and p["n_predict"] > 0:
+            p["max_tokens"] = p["n_predict"]
+        for k in CLOUD_DROP:
+            p.pop(k, None)
+        for k, v in (cm.get("params") or {}).items():
+            p.setdefault(k, v)
+        data = json.dumps(p, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json", "Accept-Encoding": "identity",
+                   "Accept": "text/event-stream" if p.get("stream") else "application/json",
+                   "Authorization": "Bearer " + key, "HTTP-Referer": str(c.get("referer") or "http://localhost/homeai"),
+                   "X-Title": str(c.get("title") or "HomeAI"), "Content-Length": str(len(data))}
+        print(f"[HomeAI] cloud request -> {cm['upstream']} ({len(data)} bytes)", file=sys.stderr, flush=True)
+        conn = http.client.HTTPSConnection(base.hostname, base.port or 443, timeout=int(c.get("timeout") or 600))
+        self.relay(conn, "POST", base.path.rstrip("/") + "/chat/completions", data, headers,
+                   f"cloud API unreachable at {base.scheme}://{base.hostname}", drop=("set-cookie",))
+
+    def relay(self, conn, method, target, body, headers, unreachable, drop=()):
         try:
             try:
                 conn.request(method, target, body=body, headers=headers)
                 up = conn.getresponse()
             except (ConnectionRefusedError, OSError) as e:
-                return self.send_error_json(502, f"llama-server unreachable at {CFG['llama_url']} ({e})")
+                return self.send_error_json(502, f"{unreachable} ({e})")
             self.send_response(up.status, up.reason)
             for k, v in up.getheaders():
-                if k.lower() not in HOP_HEADERS:
+                if k.lower() not in HOP_HEADERS and k.lower() not in drop:
                     self.send_header(k, v)
             self.send_header("Transfer-Encoding", "chunked")
             self.send_header("X-Accel-Buffering", "no")

@@ -1,0 +1,12 @@
+{
+  "_readme": "Optional cloud models for HomeAI (OpenRouter). Copy to data\\cloud.json, put your OpenRouter API key alone in data\\openrouter.key (or set OPENROUTER_API_KEY), then press Rescan in the model picker. Only requests for these cloud/... ids leave the PC; Auto routing never picks them. Set a model's \"enabled\" to true/false to show or hide it (no restart needed). \"vision\": true allows image attachments, \"ctx\" is shown in the picker, \"params\" are default request fields.",
+  "enabled": true,
+  "base_url": "https://openrouter.ai/api/v1",
+  "key_file": "",
+  "models": [
+    {"id": "cloud/deepseek-v4-pro", "upstream": "deepseek/deepseek-v4-pro", "label": "Cloud: DeepSeek V4 Pro", "ctx": 1048576, "vision": false},
+    {"id": "cloud/glm-5.3", "upstream": "z-ai/glm-5.3", "label": "Cloud: GLM 5.3", "ctx": 1048576, "vision": false},
+    {"id": "cloud/kimi-k3.1-pro", "upstream": "moonshotai/kimi-k3.1-pro", "label": "Cloud: Kimi K3.1 Pro", "ctx": 1048576, "vision": true},
+    {"id": "cloud/hermes-4-405b", "upstream": "nousresearch/hermes-4-405b", "label": "Cloud: Hermes 4 405B", "ctx": 131072, "vision": false, "enabled": false}
+  ]
+}

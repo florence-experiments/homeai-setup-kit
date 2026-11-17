@@ -171,12 +171,13 @@ function splitName(id) {
 }
 const modelById = (id) => S.models.find(m => m.id === id);
 const modelStatus = (id) => modelById(id)?.status || 'unknown';
+const localModels = () => S.models.filter(m => !m.cloud);   // cloud (OpenRouter) models: picked by hand only, never by Auto routing
 function resolveModel(pat) {
   if (!pat || pat === 'auto' || pat === AUTO) return null;
   if (pat.includes(',')) { for (const part of pat.split(',')) { const id = resolveModel(part.trim()); if (id) return id; } return null; }
   if (modelById(pat)) return pat;
-  if (pat.startsWith('@')) { const prof = S.routing.profiles.find(p => p.key === pat.slice(1)); return prof ? R.resolveProfile(prof, S.models) : null; }
-  const hits = S.models.filter(m => R.matchPattern(m.id, pat));
+  if (pat.startsWith('@')) { const prof = S.routing.profiles.find(p => p.key === pat.slice(1)); return prof ? R.resolveProfile(prof, localModels()) : null; }
+  const hits = localModels().filter(m => R.matchPattern(m.id, pat));
   return (hits.find(m => m.status === 'loaded') || hits[0])?.id || null;
 }
 function presetModelLabel(p) {
@@ -187,7 +188,7 @@ function presetModelLabel(p) {
   if (first.startsWith('@')) { const prof = S.routing.profiles.find(x => x.key === first.slice(1)); return (prof ? prof.label : first) + ' (not installed)'; }
   return p.model + ' (not installed)';
 }
-const modelLabel = (id) => id ? R.labelForModel(S.routing, id) : '';
+const modelLabel = (id) => id ? (modelById(id)?.cloud ? (modelById(id).label || id) : R.labelForModel(S.routing, id)) : '';
 const isAuto = () => S.chat?.mode === 'auto';
 async function refreshModels() {
   try {
@@ -197,7 +198,7 @@ async function refreshModels() {
     const list = (d?.data || []).map(m => {
       const mods = m.architecture?.input_modalities;
       return {
-        id: m.id, status: m.status?.value || 'loaded', failed: !!m.status?.failed,
+        id: m.id, status: m.status?.value || 'loaded', failed: !!m.status?.failed, cloud: !!m.cloud, label: m.label || '',
         vision: mods ? mods.includes('image') : isVisionName(m.id), think: isThinkName(m.id), code: isCodeName(m.id),
         ctxTrain: m.context_length || m.meta?.n_ctx_train || null, args: m.status?.args || null,
       };
@@ -209,7 +210,7 @@ async function refreshModels() {
       const old = prev.find(x => x.id === m.id);
       if (old && old.status === 'loading' && m.status === 'loaded' && S.wanted === m.id) { toast(`${splitName(m.id).name} is ready`, 'ok'); S.wanted = null; }
       if (old && old.status === 'loading' && m.status !== 'loaded' && m.failed) { toast(`Failed to load ${splitName(m.id).name}`, 'err'); if (S.wanted === m.id) S.wanted = null; }
-      if (m.status === 'loaded' && S.nctx[m.id] === undefined) fetchNctx(m.id);
+      if (m.status === 'loaded' && !m.cloud && S.nctx[m.id] === undefined) fetchNctx(m.id);
       if (m.status !== 'loaded' && S.mode === 'router') delete S.nctx[m.id];
     }
     if (S.wanted && modelStatus(S.wanted) === 'loaded') S.wanted = null;
@@ -239,8 +240,8 @@ function setServer(ok, msg) {
   const was = S.serverOk; S.serverOk = ok;
   const pill = $('#serverPill');
   pill.className = 'server-pill ' + (ok ? 'ok' : 'bad');
-  const loaded = S.models.filter(m => m.status === 'loaded').length;
-  $('.txt', pill).textContent = ok ? (S.mode === 'router' ? `Router · ${loaded}/${S.models.length} loaded` : 'llama-server · online') : 'llama-server offline';
+  const loaded = localModels().filter(m => m.status === 'loaded').length;
+  $('.txt', pill).textContent = ok ? (S.mode === 'router' ? `Router · ${loaded}/${localModels().length} loaded` : 'llama-server · online') : 'llama-server offline';
   pill.title = ok ? 'Connected to llama-server' : ('Cannot reach llama-server: ' + (msg || ''));
   if (was === true && !ok) toast('Lost connection to llama-server', 'err');
 }
@@ -279,10 +280,10 @@ function renderModelPicker() {
     $('#mpName').textContent = 'Auto';
     const last = [...S.chat.messages].reverse().find(x => x.route && x.model);
     $('#mpSub').textContent = last ? `→ ${modelLabel(last.model)}` : (S.routing.maxQuality ? 'max quality' : 'best model per message');
-  } else if (cur) { const sn = splitName(cur); $('#mpName').textContent = sn.name; $('#mpSub').textContent = sn.quant; }
+  } else if (cur) { const sn = splitName(cur); $('#mpName').textContent = m?.cloud ? (m.label || cur) : sn.name; $('#mpSub').textContent = m?.cloud ? 'cloud · OpenRouter' : sn.quant; }
   else { $('#mpName').textContent = S.models.length ? 'Select a model' : (S.serverOk === false ? 'llama-server offline' : 'No models'); $('#mpSub').textContent = ''; }
   const menu = $('#mpMenu'); if (menu.hidden) return;
-  const stLabel = (x) => x.failed ? 'Failed' : ({ loaded: 'Loaded', loading: 'Loading…', unloaded: 'Unloaded', sleeping: 'Sleeping', downloading: 'Downloading…' }[x.status] || x.status);
+  const stLabel = (x) => x.failed ? 'Failed' : x.cloud ? 'Cloud' : ({ loaded: 'Loaded', loading: 'Loading…', unloaded: 'Unloaded', sleeping: 'Sleeping', downloading: 'Downloading…' }[x.status] || x.status);
   const max = S.router?.max_instances;
   const lastAuto = auto ? [...S.chat.messages].reverse().find(x => x.route && x.model) : null;
   menu.innerHTML = `<div class="mp-title"><span>Models${S.mode === 'router' ? ' · router' : ''}</span><button data-act="mp-reload">${icon('refresh')}Rescan</button></div>` +
@@ -296,14 +297,15 @@ function renderModelPicker() {
       const nctx = S.nctx[x.id] ? ` · n_ctx ${fmt(S.nctx[x.id])}` : '';
       let act = '';
       if (S.mode === 'router') {
-        if (x.status === 'loaded' || x.status === 'sleeping') act = `<button class="mp-act" data-act="mp-unload" data-id="${esc(x.id)}" title="Unload from VRAM">Eject</button>`;
+        if (x.cloud) act = '';   // cloud: nothing to load or eject
+        else if (x.status === 'loaded' || x.status === 'sleeping') act = `<button class="mp-act" data-act="mp-unload" data-id="${esc(x.id)}" title="Unload from VRAM">Eject</button>`;
         else if (x.status === 'unloaded') act = `<button class="mp-act" data-act="mp-load" data-id="${esc(x.id)}" title="Load now">Load</button>`;
       }
       const roles = R.rolesForModel(S.routing, x.id, S.models).filter(r => !(r === 'vision' && x.vision));
       const prof = R.profileForModel(S.routing, x.id);
       return `<div class="mp-item ${x.id === cur && !auto ? 'selected' : ''}" data-act="mp-select" data-id="${esc(x.id)}" title="${esc(x.id + (prof?.note ? '\n' + prof.note : ''))}">
         <div class="mp-icon">${icon(ic)}</div>
-        <div class="mp-info"><div class="n" title="${esc(x.id)}">${esc(prof ? prof.label : sn.name)}</div>
+        <div class="mp-info"><div class="n" title="${esc(x.id)}">${esc(x.cloud ? (x.label || x.id) : prof ? prof.label : sn.name)}</div>
           <div class="m">${sn.quant ? `<span class="tag">${esc(prof ? x.id.replace(/^.*?(?=(I?Q\d|Q\d|F16|BF16|-vision|-MTP))/i, '').replace(/^-/, '') || sn.quant : sn.quant)}</span>` : ''}${x.vision ? `<span class="tag vision">${icon('eye')}vision</span>` : ''}${x.think && !roles.length ? `<span class="tag think">${icon('brain')}reasoning</span>` : ''}${roles.map(r => `<span class="tag role ${r}">${esc(r)}</span>`).join('')}${ctx ? `<span class="tag">${ctx}${nctx}</span>` : ''}</div></div>
         <span class="st ${x.failed ? 'failed' : x.status}">${x.status === 'loading' ? '<span class="spinner"></span>' : `<span class="status-dot ${x.failed ? 'failed' : x.status}"></span>`}${stLabel(x)}</span>
         ${act}</div>`;
@@ -509,7 +511,7 @@ function updateAssistant(el, m, live) {
     if (g.phase === 'routing') {
       ph.innerHTML = `<div class="phase"><span class="ico" style="color:var(--accent-1)">${icon('sparkles')}</span><div class="grow"><span class="shimmer">Choosing the best model…</span>${g.routeNote ? ` <small>${esc(g.routeNote)}</small>` : ''}</div></div>`;
     } else if (g.phase === 'loading') {
-      const others = S.models.filter(x => x.status === 'loaded' && x.id !== m.model).map(x => splitName(x.id).name);
+      const others = localModels().filter(x => x.status === 'loaded' && x.id !== m.model).map(x => splitName(x.id).name);
       ph.innerHTML = `<div class="phase"><span class="spinner" style="color:var(--warn)"></span><div class="grow">Loading <b>${esc(m.route ? modelLabel(m.model) : splitName(m.model).name)}</b>${others.length ? ` <small>· swapping out ${esc(others.join(', '))}</small>` : ''}<div class="pbar indet"><i></i></div></div></div>`;
     } else if (g.phase === 'prompt' && g.progress) {
       const p = g.progress; const tot = Math.max(1, p.total - (p.cache || 0)); const pct = Math.max(0, Math.min(100, Math.round(((p.processed - (p.cache || 0)) / tot) * 100)));
@@ -586,7 +588,7 @@ function renderStats() {
       } else html += `<span class="s" title="Tokens in context">Context <b>${fmt(used)}</b> tok</span>`;
     } else {
       const m = modelById(S.chat.model);
-      if (isAuto()) { const ld = S.models.filter(x => x.status === 'loaded'); html += `<span class="s"><span class="status-dot auto"></span>Auto · ${S.models.length} models${ld.length ? ` · loaded: ${esc(ld.map(x => modelLabel(x.id)).join(', '))}` : ' · none loaded'}${S.routing.maxQuality ? ' · max quality' : ''}</span>`; }
+      if (isAuto()) { const ld = localModels().filter(x => x.status === 'loaded'); html += `<span class="s"><span class="status-dot auto"></span>Auto · ${S.models.length} models${ld.length ? ` · loaded: ${esc(ld.map(x => modelLabel(x.id)).join(', '))}` : ' · none loaded'}${S.routing.maxQuality ? ' · max quality' : ''}</span>`; }
       else if (m) html += `<span class="s"><span class="status-dot ${m.failed ? 'failed' : m.status}"></span>${esc(splitName(m.id).name)} · ${m.status}${nctx ? ` · n_ctx ${fmt(nctx)}` : ''}</span>`;
     }
     html += `<span class="s right"><kbd>Ctrl K</kbd> search · <kbd>${S.settings.sendKey === 'enter' ? 'Enter' : 'Ctrl Enter'}</kbd> send</span>`;
@@ -701,13 +703,13 @@ async function decideRoute(chat, um, signal, g) {
   const pm = lastRouted(chat, g?.msg);
   const prev = pm ? { category: pm.route.category, model: pm.model } : null;
   const est = estTokens(chat);
-  const base = { text: um.content || '', files: um.files || [], images: (um.images || []).length, estTokens: est, models: S.models, cfg, prev,
+  const base = { text: um.content || '', files: um.files || [], images: (um.images || []).length, estTokens: est, models: localModels(), cfg, prev,
     historyHasImages: chat.messages.some(m => m !== um && (m.images || []).length) };
   const heur = R.classifyHeuristic(base.text, base.files);
   const hard = base.images > 0 || est > cfg.longSoftTokens;
   const followSame = prev && cfg.followUp && heur.category === prev.category;
   let llm = null; let clsInfo = null;
-  const cm = R.pickClassifierModel(cfg, S.models);
+  const cm = R.pickClassifierModel(cfg, localModels());
   if (!hard && !followSame && R.wantsLLM(cfg, heur, hard)) {
     if (cm) {
       if (g) { g.routeNote = `asking ${modelLabel(cm)}`; if (g.el.isConnected) updateAssistant(g.el, g.msg, true); }
@@ -1099,7 +1101,7 @@ function updateRouteTest() {
   const out = $('#rtOut'); if (!out) return;
   const text = $('#rtTest').value; const img = $('#rtImg').checked; const extra = +$('#rtTok').value || 0;
   S._rtTest = text; S._rtImg = img; S._rtTok = extra;
-  const d = R.route({ text, files: [], images: img ? 1 : 0, estTokens: Math.round(text.length / 3.6) + extra, models: S.models, cfg: S.routing });
+  const d = R.route({ text, files: [], images: img ? 1 : 0, estTokens: Math.round(text.length / 3.6) + extra, models: localModels(), cfg: S.routing });
   const sp = R.samplingFor(S.routing, d.category);
   out.innerHTML = d.model ? `<div class="rr-res"><span class="rc-cat cat-${d.category}">${esc(R.CATEGORY_LABELS[d.category])}</span>→ <b>${esc(d.label)}</b>${d.kept ? ' <small>(kept loaded)</small>' : ''}${d.fallback ? ' <small>(fallback)</small>' : ''}</div>
     <small>${esc(d.reason)}${d.confidence != null ? ` · confidence ${Math.round(d.confidence * 100)}%` : ''} · temp ${sp.temperature} · think ${sp.thinking}${d.skipped.length ? `<br>skipped: ${esc(d.skipped.join('; '))}` : ''}</small>` : '<small>No models installed.</small>';

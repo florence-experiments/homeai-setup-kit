@@ -12,6 +12,9 @@ run/
 data/
 payload/homeai/data/
 payload/homeai/config.json
+# cloud API keys (OpenRouter) - never commit
+openrouter.key
+*.key
 payload/security/config.json
 payload/security/logs/
 payload/security/state/
